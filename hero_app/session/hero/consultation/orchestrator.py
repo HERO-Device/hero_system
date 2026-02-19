@@ -33,13 +33,11 @@ from hero.consultation.utils import take_screenshot, NpEncoder, Buttons, ButtonM
 from hero.consultation.screen import Colours, Fonts
 
 # Cognitive test imports
-from hero.cognitive_tests.clock_draw import ClockDraw
-from hero.cognitive_tests.perceived_stress_score import PSS
 from hero.cognitive_tests.shape_searcher import ShapeSearcher
 from hero.cognitive_tests.spiral_test import SpiralTest
-from hero.cognitive_tests.visual_attention_test import VisualAttentionTest
-from hero.cognitive_tests.wisconsin_card_test import CardGame
 from hero.consultation.login_screen import LoginScreen
+from hero.cognitive_tests.memory_game import MemoryGame
+from hero.cognitive_tests.trail_making_test import TrailMakingTest
 
 # Affective computing
 try:
@@ -182,27 +180,18 @@ class Consultation:
                 parent=self,
                 auto_run=auto_run
             ),
-            "VAT": VisualAttentionTest(
-                parent=self,
-                grid_size=(self.display_size.y * 0.9, self.display_size.y * 0.9),
-                auto_run=auto_run
-            ),
-            "WCT": CardGame(
-                parent=self,
-                max_turns=wct_turns,
-                auto_run=auto_run
-            ),
-            "PSS": PSS(
-                parent=self,
-                question_count=self.pss_question_count,
-                auto_run=auto_run,
-                preload_audio=False
-            ),
-            "Clock": ClockDraw(parent=self, auto_run=auto_run),
             "Login": LoginScreen(
                 parent=self,
                 username=username,
                 password=password,
+                auto_run=auto_run
+            ),
+            "Memory": MemoryGame(
+                parent=self,
+                auto_run=auto_run
+            ),
+            "Trail": TrailMakingTest(
+                parent=self,
                 auto_run=auto_run
             ),
         }
@@ -217,7 +206,7 @@ class Consultation:
             )
 
         # Test execution order
-        self.module_order = ["Login", "Spiral", "Clock", "Shapes", "VAT", "WCT", "PSS"]
+        self.module_order = ["Login", "Spiral", "Shapes", "Memory", "Trail"]
         self.module_idx = 0
 
         # State
