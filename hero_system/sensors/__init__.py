@@ -15,21 +15,21 @@ All sensors support:
 - Quality assessment and validation
 """
 
-from .eeg import EEGCollector, EEGProcessor, EEGConfig
-from .eye_tracking import EyeTrackingProcessor, EyeTrackingCalibrator, EyeTrackingConfig
+#from .eeg import EEGCollector, EEGProcessor, EEGConfig
+#from .eye_tracking import EyeTrackingProcessor, EyeTrackingCalibrator, EyeTrackingConfig
 from .max30102 import MAX30102Collector, MAX30102Processor, MAX30102Config
 from .mpu6050 import MPU6050Collector, MPU6050Processor, MPU6050Config
 
 __all__ = [
     # EEG (4 channels)
-    'EEGCollector',
-    'EEGProcessor',
-    'EEGConfig',
+    #'EEGCollector',
+    #'EEGProcessor',
+    #'EEGConfig',
 
     # Eye Tracking
-    'EyeTrackingProcessor',
-    'EyeTrackingCalibrator',
-    'EyeTrackingConfig',
+    #'EyeTrackingProcessor',
+    #'EyeTrackingCalibrator',
+    #'EyeTrackingConfig',
 
     # MAX30102 (Heart Rate + SpO2)
     'MAX30102Collector',

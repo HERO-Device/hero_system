@@ -39,41 +39,52 @@ class MAX30102Collector:
     ):
         """
         Initialize MAX30102 collector
-
-        Args:
-            session_id: UUID of current session
-            db_session: Database session
-            coordinator: Sensor coordinator for timestamps
-            config: MAX30102 configuration
         """
         self.session_id = session_id
         self.db_session = db_session
         self.coordinator = coordinator
         self.config = config if config else MAX30102Config.for_session()
-
+        
         # Hardware
         self.sensor = None
-
+        
         # State management
         self.is_running = False
         self.collection_thread = None
         self.stop_event = threading.Event()
-
+        
+        # Data buffers - ADD THESE LINES IF MISSING
+        self.ir_buffer = []
+        self.red_buffer = []
+        self.hr_smoothing_buffer = []
+        
+        # Real-time processing state
+        self.latest_hr = 0
+        self.latest_hr_valid = False
+        self.latest_spo2 = 0
+        self.latest_spo2_valid = False
+        self.last_display_time = 0
+        
         # Sample tracking
         self.sample_count = 0
-
+        
         # Import database models
         try:
-            from hero_core.database.models.sensors import SensorHeartRate, SensorOximeter
+            from hero_core.database.models.sensors import SensorHeartRate, SensorOximeter, MetricsProcessed
             self.SensorHeartRate = SensorHeartRate
             self.SensorOximeter = SensorOximeter
+            self.MetricsProcessed = MetricsProcessed
         except ImportError:
             logger.error("Could not import database models")
             self.SensorHeartRate = None
             self.SensorOximeter = None
-
-        logger.info(f"MAX30102 Collector initialized for session {session_id}")
-
+            self.MetricsProcessed = None
+        
+        logger.info(
+            f"MAX30102 Collector initialized for session {session_id} "
+            f"(mode: {self.config.mode}, realtime: {self.config.realtime_processing})"
+        )
+        
     def start(self):
         """Start MAX30102 data collection"""
         if self.is_running:
@@ -139,28 +150,44 @@ class MAX30102Collector:
     def _collection_loop(self):
         """Main data collection loop - runs in separate thread"""
         logger.info("MAX30102 collection loop started")
-
+        
         while not self.stop_event.is_set():
             try:
-                # Check if data is available in FIFO
-                num_bytes = self.sensor.get_data_present()
-
-                if num_bytes > 0:
-                    # Read all available data from FIFO
-                    while num_bytes > 0:
-                        red, ir = self.sensor.read_fifo()
-                        num_bytes -= 1
-
-                        # Store raw data to database
-                        self._store_raw_sample(ir, red)
-
-                # Sleep to maintain polling rate
+                # Read single sample
+                red, ir = self.sensor.read_fifo()
+                
+                if red and ir:
+                    timestamp = self.coordinator.get_central_timestamp()
+                    
+                    # Store in buffers
+                    self.ir_buffer.append(ir)
+                    self.red_buffer.append(red)
+                    
+                    # Keep buffers at configured size
+                    if len(self.ir_buffer) > self.config.buffer_size:
+                        self.ir_buffer.pop(0)
+                        self.red_buffer.pop(0)
+                    
+                    self.sample_count += 1
+                    
+                    # Batch commit
+                    if self.sample_count % self.config.batch_commit_size == 0:
+                        try:
+                            self.db_session.commit()
+                        except Exception as e:
+                            logger.error(f"Commit error: {e}")
+                            self.db_session.rollback()
+                    
+                    # Real-time processing if in calibration mode
+                    #if self.config.realtime_processing and len(self.ir_buffer) == self.config.buffer_size:
+                    #    self._process_realtime()
+                
                 time.sleep(self.config.collection_interval)
-
+                
             except Exception as e:
                 logger.error(f"Error in collection loop: {e}", exc_info=True)
                 time.sleep(0.1)
-
+        
         logger.info("MAX30102 collection loop stopped")
 
     def _store_raw_sample(self, ir: int, red: int):
