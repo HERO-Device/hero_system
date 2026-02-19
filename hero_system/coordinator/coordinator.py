@@ -192,3 +192,4 @@ class SensorCoordinator:
 
     def __repr__(self):
         return f"<SensorCoordinator(session={self.session_id}, sensors={len(self.sensors)})>"
+        
