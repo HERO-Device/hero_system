@@ -1,13 +1,14 @@
+import math
+import os
 import time
 
+import pandas as pd
 import pygame as pg
+
 from hero.consultation.utils import Buttons, ButtonModule, take_screenshot
 from hero.consultation.screen import Screen, Fonts, Colours
 from hero.consultation.display_screen import DisplayScreen
 from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
-import math
-import os
-import pandas as pd
 
 
 class User:
@@ -48,9 +49,6 @@ class LoginScreen:
         pg.draw.rect(self.display_screen.base_surface, Colours.white.value, self.info_rect)
 
         self.display_screen.state = 1
-        # self.display_screen.add_multiline_text("Please enter your login details",
-        #                                        rect=self.info_rect.scale_by(0.9, 0.9),
-        #                                        font_size=40, base=True)
 
         self.touch_screen = TouchScreen(self.display_size)
 
@@ -69,7 +67,6 @@ class LoginScreen:
             position=pg.Vector2(0.9 * self.display_size.x - delete_size.x / 2, 0.82 * self.display_size.y),
             size=delete_size, id="enter", text="submit")
 
-        # Additional class properties
         letters_1 = ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"]
         letters_2 = ["a", "s", "d", "f", "g", "h", "j", "k", "l"]
         letters_3 = ["z", "x", "c", "v", "b", "n", "m"]
@@ -86,8 +83,6 @@ class LoginScreen:
         line_3 = [(((idx + 0.8) * card_width + (idx + 2) * h_gap) * self.display_size.x,
                    0.64 * self.display_size.y) for idx in range(7)]
 
-        # print(self.option_coords)
-
         space_size = pg.Vector2(500, 80)
         space_rect = pg.Rect(pg.Vector2(0.42 * self.display_size.x - space_size.x / 2, 0.82 * self.display_size.y),
                              space_size)
@@ -102,7 +97,7 @@ class LoginScreen:
 
         self.active_string = "user"
         self.user = None
-        self.keys[-2].colour = Colours.lightGrey.value  # grey out password
+        self.keys[-2].colour = Colours.lightGrey.value  # grey out password initially
         self.running = False
 
         if username and password:
@@ -113,16 +108,15 @@ class LoginScreen:
             self.pass_string = []
 
         self.auto_run = auto_run
-
         self.power_off = False
 
     def update_display(self):
         self.display_screen.refresh()
 
         user_rect = self.info_rect.scale_by(0.9, 0.8)
-        user_rect = pg.Rect(user_rect.topleft+ pg.Vector2(0, 50), (user_rect.w, 80))
+        user_rect = pg.Rect(user_rect.topleft + pg.Vector2(0, 50), (user_rect.w, 80))
         pass_rect = pg.Rect(user_rect.topleft + pg.Vector2(0, 150), user_rect.size)
-        # pg.draw.rect(self.display_screen.surface, color=Colours.hero_blue.value, rect=user_rect)
+
         if self.active_string == "user":
             user_text = Colours.white
             user_bg = Colours.hero_blue
@@ -147,26 +141,40 @@ class LoginScreen:
         self.bottom_screen.blit(self.touch_screen.get_surface(), (0, 0))
         pg.display.flip()
 
-        # print(self.display_screen.instruction)
-
     def check_credentials(self):
-        username, password = "".join(self.user_string), "".join(self.pass_string)
+        """
+        Verify login credentials.
+        Tries PostgreSQL DB first, falls back to CSV.
+        Sets self.parent.user on success.
+        """
+        username = "".join(self.user_string)
+        password = "".join(self.pass_string)
 
+        # --- PostgreSQL DB auth ---
+        if self.parent and self.parent.db:
+            db_user = self.parent.db.verify_login(username, password)
+            if db_user:
+                # Set parent.user from DB user object
+                self.parent.user = User(
+                    name=db_user.full_name or username,
+                    age=None,
+                    id=db_user.user_id
+                )
+                return True
+            else:
+                return False
+
+        # --- CSV fallback ---
         if self.all_user_data is not None:
             if username in self.all_user_data.index:
-                # print("user recognised")
                 if self.all_user_data.loc[username, "Password"] == password:
                     return True
 
         return False
 
     def entry_sequence(self):
-        # pre-loop initialisation section
-        # add everything needed to introduce your module and explain
-        # what the users are expected to do (e.g. game rules, aim, etc.)
-
         self.running = True
-        self.update_display()  # render graphics to main consult
+        self.update_display()
 
         if self.parent:
             self.parent.speak_text("Welcome to the HERO consultation",
@@ -177,38 +185,49 @@ class LoginScreen:
         self.display_screen.instruction = "Please enter your details"
         self.touch_screen.sprites = GameObjects(self.keys)
         self.update_display()
-        # add code below
 
+        # Auto-run: skip login if credentials pre-filled
         if self.user_string and self.pass_string and self.auto_run:
             if self.check_credentials():
                 self.running = False
 
     def exit_sequence(self):
-        # post-loop completion section
-        # maybe add short thank you for completing the section?
-
-        # only OPTIONAL and can leave blank
+        """
+        Finalise login.
+        parent.user is already set by check_credentials() if using DB.
+        Falls back to CSV user creation if no DB.
+        """
         self.running = False
-        username, password = "".join(self.user_string), "".join(self.pass_string)
-        user_data = self.all_user_data.loc[username]
-        return User(name=user_data["FirstName"], age=21, id=user_data["UserID"])
+        username = "".join(self.user_string)
+
+        # DB path: parent.user already set in check_credentials
+        if self.parent and self.parent.user:
+            return self.parent.user
+
+        # CSV fallback
+        if self.all_user_data is not None and username in self.all_user_data.index:
+            user_data = self.all_user_data.loc[username]
+            user = User(name=user_data["FirstName"], age=21, id=user_data["UserID"])
+            if self.parent:
+                self.parent.user = user
+            return user
+
+        return None
 
     def button_actions(self, selected):
         if selected == Buttons.power:
             self.power_off = not self.power_off
-
             self.display_screen.power_off = self.power_off
             self.touch_screen.power_off = self.power_off
-
             self.update_display()
 
     def loop(self):
         self.entry_sequence()
+
         while self.running:
             for event in pg.event.get():
                 if event.type == pg.KEYDOWN and not self.power_off:
                     if event.key == pg.K_s:
-                        # do something with key press
                         if self.parent:
                             take_screenshot(self.parent.window)
                         else:
@@ -218,17 +237,18 @@ class LoginScreen:
                         self.running = False
 
                 elif event.type == pg.MOUSEBUTTONDOWN and not self.power_off:
-                    # do something with mouse click
                     mouse_pos = pg.Vector2(pg.mouse.get_pos()) - pg.Vector2(0, self.display_size.y)
                     button_id = self.touch_screen.click_test(mouse_pos)
+
                     if button_id is not None:
                         if button_id == "username":
                             self.active_string = "user"
-                            self.keys[-1].colour = Colours.hero_blue.value  # grey out password
+                            self.keys[-1].colour = Colours.hero_blue.value
                             self.keys[-2].colour = Colours.lightGrey.value
+
                         elif button_id == "password":
                             self.active_string = "pass"
-                            self.keys[-1].colour = Colours.lightGrey.value  # grey out password
+                            self.keys[-1].colour = Colours.lightGrey.value
                             self.keys[-2].colour = Colours.hero_blue.value
 
                         else:
@@ -241,21 +261,25 @@ class LoginScreen:
                                     del self.user_string[-1]
                                 elif self.active_string == "pass" and self.pass_string:
                                     del self.pass_string[-1]
+
                             elif button_id == "enter":
                                 if not self.pass_string:
+                                    # Switch to password field if not filled
                                     self.active_string = "pass"
-                                    self.active_string = "pass"
-                                    self.keys[-1].colour = Colours.lightGrey.value  # grey out password
+                                    self.keys[-1].colour = Colours.lightGrey.value
                                     self.keys[-2].colour = Colours.hero_blue.value
                                 elif self.check_credentials():
                                     self.running = False
                                 else:
                                     if self.parent:
                                         self.parent.speak_text(
-                                            "I dont recognise that user, please check your details again",
-                                            visual=True, display_screen=self.display_screen, touch_screen=self.touch_screen)
-
+                                            "I don't recognise that user, please check your details again",
+                                            visual=True,
+                                            display_screen=self.display_screen,
+                                            touch_screen=self.touch_screen
+                                        )
                                     self.pass_string = []
+
                             else:
                                 if self.active_string == "user":
                                     self.user_string.append(button_id)
@@ -268,22 +292,18 @@ class LoginScreen:
                         self.update_display()
 
                 elif event.type == pg.QUIT:
-                    # break the running loop
                     self.running = False
 
             selected = self.button_module.check_pressed()
             if selected is not None:
                 self.button_actions(selected)
 
-        output = self.exit_sequence()
-        return output
+        return self.exit_sequence()
 
 
 if __name__ == "__main__":
-
-    os.chdir("/Users/benhoskings/Documents/Pycharm/Hero_Monitor")
     pg.init()
-    # Module Testing
     login_screen = LoginScreen()
     login_screen.loop()
     print("Module run successfully")
+    

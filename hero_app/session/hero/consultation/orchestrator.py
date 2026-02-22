@@ -15,17 +15,15 @@ import re
 import shutil
 import string
 import time
-from datetime import date
+from datetime import date, timezone
 
-import cv2
 import gtts
 import numpy as np
 import pandas as pd
 import pygame as pg
 
 # Hero imports
-from hero.data.db_access import DBClient
-from hero.consultation.config import ConsultConfig, get_mongo_client
+from hero.consultation.config import ConsultConfig
 from hero.consultation.avatar import Avatar
 from hero.consultation.display_screen import DisplayScreen
 from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
@@ -35,9 +33,9 @@ from hero.consultation.screen import Colours, Fonts
 # Cognitive test imports
 from hero.cognitive_tests.shape_searcher import ShapeSearcher
 from hero.cognitive_tests.spiral_test import SpiralTest
-from hero.consultation.login_screen import LoginScreen
 from hero.cognitive_tests.memory_game import MemoryGame
 from hero.cognitive_tests.trail_making_test import TrailMakingTest
+from hero.consultation.login_screen import LoginScreen
 
 # Affective computing
 try:
@@ -47,6 +45,14 @@ except ImportError as e:
     print(f"⚠ Warning: Affective computing not available: {e}")
     AFFECTIVE_AVAILABLE = False
     AffectiveModulePi = None
+
+# Screenshot (cv2 optional)
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
 
 class User:
     """Patient user model."""
@@ -68,7 +74,7 @@ class Consultation:
     def __init__(self, enable_speech=True, scale=1, pi=True, authenticate=True,
                  seamless=True, username=None, password=None, consult_date=None,
                  auto_run=False, wct_turns=20, pss_questions=10, db_client=None,
-                 local=True):
+                 local=True, db=None, clock=None):
         """
         Initialize Consultation.
 
@@ -82,10 +88,13 @@ class Consultation:
             password: Pre-filled password (for testing)
             consult_date: Override consultation date
             auto_run: Automatically run tests (for testing)
-            wct_turns: Number of Wisconsin Card Test turns
-            pss_questions: Number of PSS questions
-            db_client: Database client (if not local)
-            local: Save locally vs remote database
+            wct_turns: Legacy, unused
+            pss_questions: Legacy, unused
+            db_client: Legacy, unused
+            local: Save locally as JSON backup
+            db: HeroDB instance for PostgreSQL integration
+            clock: CentralClock instance for synchronized timestamps
+                   (shared with SensorCoordinator so all data is on the same clock)
         """
         # User authentication
         self.authenticate_user = authenticate
@@ -98,11 +107,18 @@ class Consultation:
         self.pi = pi
         self.local = local
 
+        # HERO DB integration
+        self.db = db
+        self.session_id = None
+
+        # Central clock — falls back to datetime.now() if not provided
+        self.clock = clock
+
         # Audio temp directory
         self.audio_temp_dir = "temp/question_audio"
         os.makedirs(self.audio_temp_dir, exist_ok=True)
 
-        # UPDATED: Resources directory
+        # Resources directory
         self.resources_dir = "hero/consultation/resources"
 
         # Display setup
@@ -113,10 +129,9 @@ class Consultation:
         if not pg.font.get_init():
             pg.font.init()
 
-            # NOW create fonts
         self.fonts = Fonts()
 
-        # Load user data
+        # Load user data (CSV fallback for login)
         if os.path.exists("data/user_data.csv"):
             self.all_user_data = pd.read_csv("data/user_data.csv")
             self.all_user_data = self.all_user_data.set_index("Username")
@@ -171,29 +186,22 @@ class Consultation:
         self.button_module = ButtonModule(pi)
 
         # Initialize test modules
-        self.pss_question_count = pss_questions
         self.modules = {
-            "Shapes": ShapeSearcher(parent=self, auto_run=auto_run),
-            "Spiral": SpiralTest(
-                turns=3,
-                spiral_size=self.display_size.y * 0.9,
-                parent=self,
-                auto_run=auto_run
-            ),
             "Login": LoginScreen(
                 parent=self,
                 username=username,
                 password=password,
                 auto_run=auto_run
             ),
-            "Memory": MemoryGame(
+            "Spiral": SpiralTest(
+                turns=3,
+                spiral_size=self.display_size.y * 0.9,
                 parent=self,
                 auto_run=auto_run
             ),
-            "Trail": TrailMakingTest(
-                parent=self,
-                auto_run=auto_run
-            ),
+            "Shapes": ShapeSearcher(parent=self, auto_run=auto_run),
+            "Memory": MemoryGame(parent=self, auto_run=auto_run),
+            "Trail": TrailMakingTest(parent=self, auto_run=auto_run),
         }
 
         # Add affective computing only if available
@@ -217,25 +225,27 @@ class Consultation:
         self.id = self.generate_unique_id()
         self.date = consult_date if consult_date else date.today()
 
-        # Database
-        if not local:
-            if db_client:
-                self.db_client = db_client
-            else:
-                # Try to get MongoDB client
-                mongo_client = get_mongo_client()
-                if mongo_client:
-                    self.db_client = DBClient()
-                else:
-                    print("⚠ Warning: Could not connect to database, forcing local mode")
-                    self.local = True
-                    self.db_client = None
-        else:
-            self.db_client = None
-
         # Hide mouse on Pi
         if pi:
             pg.mouse.set_visible(False)
+
+    # ------------------------------------------------------------------
+    # Timestamp helper — uses central clock if available
+    # ------------------------------------------------------------------
+
+    def now(self):
+        """
+        Get current timestamp.
+        Uses CentralClock if provided (shared with sensors),
+        otherwise falls back to system clock.
+        """
+        if self.clock:
+            return self.clock.now()
+        return datetime.datetime.now(timezone.utc)
+
+    # ------------------------------------------------------------------
+    # Utilities
+    # ------------------------------------------------------------------
 
     def generate_unique_id(self):
         """Generate unique consultation ID."""
@@ -281,10 +291,8 @@ class Consultation:
         if not touch_screen:
             touch_screen = self.touch_screen
 
-        # Convert text to phonetic mouth positions
         mouth_ids = self._text_to_mouth_ids(text)
 
-        # Generate and play audio
         question_audio = gtts.gTTS(text=text, lang='en', tld='com.au', slow=False)
         question_audio_file = 'temp/question_audio/tempsave.mp3'
         question_audio.save(question_audio_file)
@@ -292,7 +300,6 @@ class Consultation:
         pg.mixer.music.load(question_audio_file)
         pg.mixer.music.play()
 
-        # Animate avatar mouth
         if visual:
             temp_instruction = display_screen.instruction
             display_screen.instruction = None
@@ -318,10 +325,9 @@ class Consultation:
         """Convert text to phonetic mouth animation IDs."""
         text_index = text.lower()
         text_index = text_index.replace("?", "").replace("!", "")
-        text_index = text_index.replace(""", "").replace(""", "")
+        text_index = text_index.replace("\u201c", "").replace("\u201d", "")
         text_index = text_index.replace(" ", "0 ").replace(".", "0 ").replace(",", "0 ")
 
-        # Phonetic replacements
         rep_1 = {"ee": "7 ", "th": "8 ", "sh": "9 ", "ch": "9 "}
         rep_2 = {
             "a": "0 ", "e": "0 ", "i": "0 ", "o": "1 ",
@@ -333,7 +339,6 @@ class Consultation:
             "u": "10 ", "q": "11 ", "w": "11 ", "h": ""
         }
 
-        # Apply replacements
         for rep in [rep_1, rep_2]:
             escaped = dict((re.escape(k), v) for k, v in rep.items())
             regex = re.compile("|".join(escaped.keys()))
@@ -342,7 +347,6 @@ class Consultation:
                 text_index
             )
 
-        # Extract mouth IDs
         mouth_ids = []
         for num in text_index.strip().split(" "):
             try:
@@ -358,6 +362,10 @@ class Consultation:
 
     def take_screenshot(self, filename=None):
         """Take screenshot of current display."""
+        if not CV2_AVAILABLE:
+            print("⚠ Screenshot unavailable: cv2 not installed")
+            return
+
         print("Taking Screenshot")
         img_array = pg.surfarray.array3d(self.window)
         img_array = cv2.transpose(img_array)
@@ -369,14 +377,77 @@ class Consultation:
         os.makedirs("screenshots", exist_ok=True)
         cv2.imwrite(f"screenshots/{filename}.png", img_array)
 
-    def entry_sequence(self):
-        """Initial consultation setup and authentication."""
-        # User login
-        if self.authenticate_user:
-            self.user = self.modules["Login"].loop()
-            self.speak_text(f"Welcome back {self.user.name}")
+    # ------------------------------------------------------------------
+    # DB helpers
+    # ------------------------------------------------------------------
 
-        # Setup UI for non-seamless mode
+    def _start_db_session(self):
+        """Create a session in the DB once the user is known."""
+        if not self.db or not self.user:
+            return
+        try:
+            self.session_id = self.db.start_session(
+                user_id=self.user.id,
+                notes=f"Consultation {self.id}"
+            )
+            print(f"✓ DB session started: {self.session_id}")
+        except Exception as e:
+            print(f"⚠ Could not start DB session: {e}")
+
+    def _save_game_to_db(self, module_name, game_number, started_at, completed_at):
+        """Save a single game result to the DB."""
+        if not self.db or not self.session_id:
+            return
+        if module_name == "Login":
+            return
+
+        module = self.modules[module_name]
+        results = getattr(module, 'results', {}) or {}
+
+        try:
+            self.db.save_game_result(
+                session_id=self.session_id,
+                game_name=module_name,
+                game_number=game_number,
+                started_at=started_at,
+                completed_at=completed_at,
+                final_score=results.get('score'),
+                max_score=results.get('total_trials') or results.get('max_score'),
+                accuracy_percent=results.get('accuracy') or results.get('accuracy_percent'),
+                correct_answers=results.get('score') or results.get('correct_answers'),
+                incorrect_answers=results.get('incorrect_answers'),
+                average_reaction_time_ms=results.get('average_reaction_time_ms'),
+                game_data=results,
+                completion_status='completed'
+            )
+            print(f"✓ Saved {module_name} result to DB")
+        except Exception as e:
+            print(f"⚠ Could not save {module_name} result: {e}")
+    
+    def _log_game_event(self, module_name, game_number, event_type, timestamp):
+        """Log a game_start or game_end event."""
+        if not self.db or not self.session_id:
+            return
+        if module_name == "Login":
+            return
+        try:
+            self.db.log_event(
+                session_id=self.session_id,
+                event_type=event_type,
+                event_category='game',
+                game_name=module_name,
+                game_number=game_number,
+                event_data={'consultation_id': self.id},
+            )
+        except Exception as e:
+            print(f"⚠ Could not log {event_type} for {module_name}: {e}")
+    
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def entry_sequence(self):
+        """Initial consultation setup."""
         if not self.seamless:
             self.touch_screen.sprites = GameObjects([self.quit_button, self.main_button])
             self.display_screen.instruction = "Click the button to start"
@@ -386,7 +457,6 @@ class Consultation:
         """Finalize consultation and save data."""
         self.speak_text("The consultation is now complete. Thank you for your time")
 
-        # Show processing screen
         self.display_screen.power_off = True
         self.touch_screen.power_off = True
 
@@ -403,107 +473,86 @@ class Consultation:
         )
         self.update_display()
 
-        # Process affective computing data
         if "Affective" in self.modules:
             self.modules["Affective"].exit_sequence()
 
         self.display_screen.power_off_surface = disp_copy
         self.update_display()
 
-        # Compile results
-        results = self._compile_results()
+        # Save local JSON backup
+        if self.local:
+            results = self._compile_results()
+            self._save_results_local(results)
 
-        # Save results
-        self._save_results(results)
+        # End DB session
+        if self.db and self.session_id:
+            try:
+                self.db.end_session(self.session_id)
+                print(f"✓ DB session ended: {self.session_id}")
+            except Exception as e:
+                print(f"⚠ Could not end DB session: {e}")
 
-        # Cleanup
-        shutil.rmtree("temp/question_audio")
+        try:
+            shutil.rmtree("temp/question_audio")
+        except Exception:
+            pass
 
         print(f"Successfully completed consultation {self.id}")
 
     def _compile_results(self):
         """Compile all test results into output format."""
-        # PSS processing
-        pss_answers = np.array(self.modules["PSS"].answers)
-        if pss_answers.size > 0:
-            pss_reverse_idx = np.array([3, 4, 6, 7])
-            pss_reverse_idx = pss_reverse_idx[pss_reverse_idx < self.pss_question_count]
-            pss_answers[pss_reverse_idx] = 4 - pss_answers[pss_reverse_idx]
-
-        pss_data = {"answers": pss_answers.tolist()}
-
-        # Wisconsin Card Test
-        wct_data = {
-            "answers": self.modules["WCT"].engine.answers,
-            "change_ids": self.modules["WCT"].engine.new_rule_ids
-        }
-
-        # Visual Attention Test
-        vat_data = {
-            "answers": self.modules["VAT"].answers,
-            "times": self.modules["VAT"].answer_times
-        }
-
-        # Clock Draw
-        clock_data = {"angle_errors": self.modules["Clock"].angle_errors}
-
-        # Shape Searcher
         shape_data = {
             "scores": self.modules["Shapes"].scores,
             "question_counts": self.modules["Shapes"].question_counts,
             "answer_times": self.modules["Shapes"].answer_times
         }
 
-        # Spiral Test
         spiral_data = {
             "classification": int(self.modules["Spiral"].classification),
             "value": self.modules["Spiral"].prediction
         }
 
-        # Affective Computing
-        affective_data = {}  # self.modules["Affective"].label_data
+        memory_data = getattr(self.modules["Memory"], 'results', {})
+        trail_data = getattr(self.modules["Trail"], 'results', {})
 
-        # Compile output
         user_id = self.user.id if self.user else None
 
         return {
             "consult_id": self.id,
-            "user_id": int(user_id) if user_id else None,
+            "user_id": str(user_id) if user_id else None,
             "consult_time": self.date.strftime("%Y-%m-%d"),
             "consult_data": {
-                "pss": pss_data,
-                "wct": wct_data,
-                "vat": vat_data,
-                "clock": clock_data,
                 "shape": shape_data,
                 "spiral": spiral_data,
-                "affective": affective_data
+                "memory": memory_data,
+                "trail": trail_data,
             }
         }
 
-    def _save_results(self, results):
-        """Save consultation results to local or remote storage."""
+    def _save_results_local(self, results):
+        """Save consultation results to local JSON."""
         self.output = results
 
         if not self.user:
             return
 
-        if self.local:
-            # Save locally
-            base_path = "data"
-            record_path = os.path.join(base_path, "consult_records")
-            os.makedirs(record_path, exist_ok=True)
+        base_path = "data"
+        record_path = os.path.join(base_path, "consult_records")
+        os.makedirs(record_path, exist_ok=True)
 
-            user_path = os.path.join(record_path, f"user_{self.user.id}")
-            os.makedirs(user_path, exist_ok=True)
+        user_path = os.path.join(record_path, f"user_{self.user.id}")
+        os.makedirs(user_path, exist_ok=True)
 
-            consult_path = os.path.join(user_path, f"consult_{self.id}")
+        consult_path = os.path.join(user_path, f"consult_{self.id}.json")
 
-            with open(consult_path, "w") as f:
-                json.dump(self.output, f, cls=NpEncoder, indent=4)
-        else:
-            # Upload to database
-            self.db_client.upload_consult(self.output)
+        with open(consult_path, "w") as f:
+            json.dump(self.output, f, cls=NpEncoder, indent=4)
+
+        print(f"✓ Results saved locally: {consult_path}")
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
 
     def loop(self, infinite=False):
         """
@@ -516,14 +565,31 @@ class Consultation:
 
         while self.running:
             if self.seamless:
-                # Auto-run all tests
-                for module in self.module_order:
-                    self.modules[module].loop()
+                for game_number, module_name in enumerate(self.module_order):
+                    started_at = self.now()
+
+                    # Log game_start event
+                    self._log_game_event(module_name, game_number, 'game_start', started_at)
+
+                    self.modules[module_name].loop()
+
+                    completed_at = self.now()
+
+                    # Create DB session right after login
+                    if module_name == "Login" and self.user:
+                        self._start_db_session()
+
+                    # Log game_end event
+                    self._log_game_event(module_name, game_number, 'game_end', completed_at)
+
+                    # Save game result to DB
+                    self._save_game_to_db(module_name, game_number, started_at, completed_at)
+
                     self.update_display()
+
                 self.running = False
 
             else:
-                # Manual progression
                 for event in pg.event.get():
                     if event.type == pg.KEYDOWN:
                         if event.key == pg.K_ESCAPE:
@@ -540,12 +606,20 @@ class Consultation:
                             self.touch_screen.kill_sprites()
                             self.update_display()
 
-                            # Run current module
-                            module = self.modules[self.module_order[self.module_idx]]
+                            module_name = self.module_order[self.module_idx]
+                            started_at = self.now()
+
+                            module = self.modules[module_name]
                             module.running = True
                             module.loop()
 
-                            # Progress to next module
+                            completed_at = self.now()
+
+                            if module_name == "Login" and self.user:
+                                self._start_db_session()
+
+                            self._save_game_to_db(module_name, self.module_idx, started_at, completed_at)
+
                             self.display_screen.instruction = "Click the button to start"
                             self.update_display()
 
@@ -580,13 +654,12 @@ if __name__ == "__main__":
 
     consult = Consultation(
         pi=False,
-        authenticate=True,
+        authenticate=False,
         seamless=True,
-        auto_run=True,
-        username="user k",
-        password="pass",
-        pss_questions=2,
-        local=True  # Save locally for testing
+        local=True,
+        enable_speech=False,
+        scale=0.8,
     )
 
     consult.loop()
+    

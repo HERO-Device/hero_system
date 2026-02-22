@@ -1,0 +1,26 @@
+# HERO System - Session App Requirements
+# Install with: pip install -r requirements.txt --break-system-packages
+
+# Core
+pygame==2.6.1
+numpy
+pandas
+scipy
+opencv-python
+Pillow
+
+# Cognitive tests
+scikit-learn
+joblib
+openpyxl
+shapely
+
+# Speech (optional, set enable_speech=True in main.py to use)
+gtts
+
+# Audio playback
+pygame  # already included above, handles audio
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0

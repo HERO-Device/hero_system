@@ -1,0 +1,54 @@
+{
+    "consult_id": "vb5gd2rm8s7kjt4",
+    "user_id": "4f26e52a-688d-4502-9a8a-da8cbae96431",
+    "consult_time": "2026-02-22",
+    "consult_data": {
+        "shape": {
+            "scores": [
+                3,
+                1,
+                1
+            ],
+            "question_counts": [
+                3,
+                2,
+                2
+            ],
+            "answer_times": [
+                2.4105796330004523,
+                1.3444005189994641,
+                1.5366898360007326,
+                1.4393569469993963,
+                0.5448426479997579,
+                0.8031519920004939,
+                0.7710999339997215
+            ]
+        },
+        "spiral": {
+            "classification": 1,
+            "value": 7.206935969971478
+        },
+        "memory": {
+            "score": 7,
+            "total_trials": 8,
+            "accuracy": 87.5,
+            "incorrect": [
+                5
+            ]
+        },
+        "trail": {
+            "completion_time": 7.0,
+            "path_efficiency": 99.97,
+            "path_smoothness": 100.0,
+            "total_distance": 3005.24,
+            "optimal_distance": 3004.3,
+            "pause_count": 0,
+            "total_pause_time": 0,
+            "average_speed": 423.39,
+            "speed_variability": 131.32,
+            "errors": 0,
+            "test_type": "A",
+            "difficulty": "medium"
+        }
+    }
+}
