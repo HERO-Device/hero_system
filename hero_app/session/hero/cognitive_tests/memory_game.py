@@ -13,7 +13,7 @@ import random
 import pygame as pg
 
 from hero.consultation.display_screen import DisplayScreen
-from hero.consultation.touch_screen import TouchScreen
+from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
 from hero.consultation.screen import Colours
 
 # Constants
@@ -94,6 +94,7 @@ class MemoryGame:
 
         # Results
         self.results = {}
+        self.trial_log = []   # per-trial: {trial_num, icon_idx, correct_cell, clicked_cell, correct, distance_px}
 
     # ------------------------------------------------------------------
     # Setup
@@ -180,7 +181,8 @@ class MemoryGame:
 
         self.total_trials += 1
 
-        if clicked_cell == correct_cell:
+        is_correct = (clicked_cell == correct_cell)
+        if is_correct:
             self.score += 1
             self.recalled_symbols.add(symbol_idx)
             self.correct_pos = correct_cell
@@ -190,6 +192,19 @@ class MemoryGame:
             self.recalled_symbols.add(symbol_idx)
             self.correct_pos = correct_cell
             self.wrong_pos = clicked_cell
+
+        # Cell distance (Manhattan, in grid units) — 0 means correct
+        cell_distance = (abs(clicked_cell[0] - correct_cell[0]) +
+                         abs(clicked_cell[1] - correct_cell[1]))
+
+        self.trial_log.append({
+            'trial_num': self.total_trials,
+            'icon_idx': symbol_idx,
+            'correct_cell': list(correct_cell),
+            'clicked_cell': list(clicked_cell),
+            'correct': is_correct,
+            'cell_distance': cell_distance,
+        })
 
         self.phase = "feedback"
         self.feedback_start_time = pg.time.get_ticks()
@@ -257,47 +272,18 @@ class MemoryGame:
                     surface.blit(icon_to_draw, icon_rect)
 
     def _draw_ui(self, surface):
-        """Draw title, instructions, score and start button."""
+        """Draw icon prompt and score on bottom screen only."""
         w = int(self.display_size.x)
+        h = int(self.display_size.y)
 
-        # Title
-        if self.phase == "waiting":
-            title_text = "Memory Game"
-        elif self.phase == "encoding":
-            title_text = "Encoding Phase"
-        else:
-            title_text = "Recall Phase"
-
-        title = self.title_font.render(title_text, True, BLACK)
-        surface.blit(title, title.get_rect(center=(w // 2, 40)))
-
-        # Instructions / countdown / icon prompt
-        if self.phase == "waiting":
-            instr = self.instruction_font.render("Tap START to begin", True, TEXT_GRAY)
-            surface.blit(instr, instr.get_rect(center=(w // 2, 90)))
-
-        elif self.phase == "encoding":
-            elapsed = (pg.time.get_ticks() - self.encoding_start_time) / 1000
-            remaining = max(0, 8 - int(elapsed))
-            instr = self.instruction_font.render(
-                f"Remember the symbol locations ({remaining}s)", True, TEXT_GRAY
-            )
-            surface.blit(instr, instr.get_rect(center=(w // 2, 90)))
-
-        elif self.phase in ("recall", "feedback"):
+        # Icon prompt during recall — show which icon to place
+        if self.phase in ("recall", "feedback"):
             if self.current_symbol_index < len(self.symbols_to_recall):
-                instr = self.instruction_font.render("Where was this symbol?", True, TEXT_GRAY)
-                surface.blit(instr, instr.get_rect(center=(w // 2, 90)))
-
                 current_icon = self.icons[self.symbols_to_recall[self.current_symbol_index]]
-                icon_rect = current_icon.get_rect(center=(w // 2, 150))
+                icon_rect = current_icon.get_rect(center=(w // 2, 60))
                 surface.blit(current_icon, icon_rect)
-            else:
-                instr = self.instruction_font.render("All symbols recalled!", True, TEXT_GRAY)
-                surface.blit(instr, instr.get_rect(center=(w // 2, 90)))
 
         # Score
-        h = int(self.display_size.y)
         if self.total_trials > 0:
             pct = int((self.score / self.total_trials) * 100)
             score_text = f"Score: {self.score}/{self.total_trials} ({pct}%)"
@@ -306,18 +292,20 @@ class MemoryGame:
         score_surf = self.score_font.render(score_text, True, TEXT_GRAY)
         surface.blit(score_surf, score_surf.get_rect(center=(w // 2, h - 40)))
 
-        # Start button (waiting phase only)
-        self.button_rect = None
-        if self.phase == "waiting":
-            self.button_rect = pg.Rect(w // 2 - 100, h - 100, 200, 50)
-            pg.draw.rect(surface, GREEN, self.button_rect, border_radius=10)
-            btn_text = self.instruction_font.render("START", True, WHITE)
-            surface.blit(btn_text, btn_text.get_rect(center=self.button_rect.center))
-
     def _update_display(self):
         """Render top and bottom screens."""
-        # Top screen — show avatar and instruction
-        self.display_screen.instruction = "Memory Game"
+        self.display_screen.refresh()
+        if self.phase == "encoding":
+            elapsed = (pg.time.get_ticks() - self.encoding_start_time) / 1000
+            remaining = max(0, 8 - int(elapsed))
+            self.display_screen.instruction = f"Remember the icon positions! ({remaining}s)"
+        elif self.phase in ("recall", "feedback"):
+            if self.current_symbol_index < len(self.symbols_to_recall):
+                self.display_screen.instruction = f"Where was this icon? ({self.current_symbol_index + 1}/{len(self.symbols_to_recall)})"
+            else:
+                self.display_screen.instruction = "Well done!"
+        else:
+            self.display_screen.instruction = "Memory Game"
         self.top_screen.blit(self.display_screen.get_surface(), (0, 0))
 
         # Bottom screen — game surface
@@ -335,28 +323,64 @@ class MemoryGame:
     # Entry / Exit
     # ------------------------------------------------------------------
 
+    def _instruction_loop(self):
+        """Show instruction screen — avatar + title on top, START button on bottom."""
+        if self.auto_run:
+            self._start_game()
+            return
+
+        self.display_screen.state = 1
+        self.display_screen.refresh()
+        self.display_screen.instruction = None
+
+        info_rect = pg.Rect(0.3 * self.display_size.x, 0, 0.7 * self.display_size.x, 0.8 * self.display_size.y)
+        pg.draw.rect(self.display_screen.surface, Colours.white.value, info_rect)
+        self.display_screen.add_multiline_text("Memory Game", rect=info_rect.scale_by(0.9, 0.9), font_size=50)
+
+        info_text = ("A grid of icons will appear on the screen. "
+                     "Try to remember where each icon is located. "
+                     "After a few seconds they will disappear, and you will need to recall where each one was.")
+        self.display_screen.add_multiline_text(rect=info_rect.scale_by(0.9, 0.9), text=info_text, center_vertical=True)
+
+        # Exactly the same button as Shapes
+        button_rect = pg.Rect((self.display_size - pg.Vector2(300, 200)) / 2, (300, 200))
+        start_button = GameButton(position=button_rect.topleft, size=button_rect.size, text="START", id=1)
+        self.touch_screen.sprites = GameObjects([start_button])
+
+        self.top_screen.blit(self.display_screen.get_surface(), (0, 0))
+        self.bottom_screen.blit(self.touch_screen.get_surface(), (0, 0))
+        pg.display.flip()
+
+        if self.parent and self.parent.config.speech:
+            self.parent.speak_text(info_text, visual=True,
+                                   display_screen=self.display_screen,
+                                   touch_screen=self.touch_screen)
+
+        wait = True
+        while wait:
+            for event in pg.event.get():
+                if event.type == pg.MOUSEBUTTONDOWN:
+                    raw = pg.Vector2(pg.mouse.get_pos())
+                    pos = raw - pg.Vector2(0, self.display_size.y)
+                    if self.touch_screen.click_test(pos) is not None:
+                        wait = False
+                elif event.type == pg.QUIT:
+                    wait = False
+
+        self.touch_screen.kill_sprites()
+        self.display_screen.state = 0
+        self.display_screen.refresh()
+        self._start_game()
+
     def entry_sequence(self):
-        """Show instructions before the game starts."""
+        """Show instructions then start the game."""
         self.running = True
         self.phase = "waiting"
 
-        if self.parent:
-            self.display_screen.instruction = "Remember the icon positions, then recall them."
-            self.parent.update_display(
-                display_screen=self.display_screen,
-                touch_screen=self.touch_screen
-            )
-            if self.parent.config.speech:
-                self.parent.speak_text(
-                    "Remember the positions of the icons, then recall them.",
-                    display_screen=self.display_screen,
-                    touch_screen=self.touch_screen
-                )
-            pg.time.wait(1500)
+        if self.parent and self.parent.config.speech:
+            pass  # speech handled inside _instruction_loop via speak_text
 
-        # Auto-run: skip waiting and start immediately
-        if self.auto_run:
-            self._start_game()
+        self._instruction_loop()
 
     def exit_sequence(self):
         """Compile and store results."""
@@ -364,11 +388,17 @@ class MemoryGame:
             round((self.score / self.total_trials) * 100, 1)
             if self.total_trials > 0 else 0
         )
+        avg_distance = (
+            round(sum(t['cell_distance'] for t in self.trial_log) / len(self.trial_log), 2)
+            if self.trial_log else 0
+        )
         self.results = {
-            "score": self.score,
-            "total_trials": self.total_trials,
-            "accuracy": accuracy,
-            "incorrect": list(self.incorrect_symbols)
+            'score': self.score,
+            'total_trials': self.total_trials,
+            'accuracy_percent': accuracy,
+            'incorrect_count': len(self.incorrect_symbols),
+            'avg_cell_distance': avg_distance,   # 0 = perfect, higher = further off
+            'trial_log': self.trial_log,
         }
         print(f"✓ Memory Game complete — {self.score}/{self.total_trials} ({accuracy}%)")
 
@@ -395,11 +425,7 @@ class MemoryGame:
                     raw = pg.Vector2(pg.mouse.get_pos())
                     pos = raw - pg.Vector2(0, self.display_size.y)
 
-                    if self.phase == "waiting" and self.button_rect:
-                        if self.button_rect.collidepoint(pos):
-                            self._start_game()
-
-                    elif self.phase == "recall":
+                    if self.phase == "recall":
                         cell = self._get_clicked_cell(pos)
                         if cell is not None:
                             self._handle_recall_click(cell)
@@ -409,3 +435,4 @@ class MemoryGame:
             clock.tick(60)
 
         self.exit_sequence()
+        

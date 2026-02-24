@@ -407,6 +407,49 @@ class Consultation:
         module = self.modules[module_name]
         results = getattr(module, 'results', {}) or {}
 
+        # Per-game field mappings — each game now has a consistent results dict
+        if module_name == "Spiral":
+            final_score     = None
+            max_score       = None
+            accuracy        = None
+            correct         = None
+            incorrect       = None
+            avg_rt_ms       = None
+
+        elif module_name == "Trail":
+            final_score     = None
+            max_score       = None
+            accuracy        = None
+            correct         = None
+            incorrect       = results.get('errors')
+            avg_rt_ms       = None
+
+        elif module_name == "Shapes":
+            total_q         = results.get('total_questions', 0)
+            correct         = results.get('correct', 0)
+            final_score     = correct
+            max_score       = total_q
+            accuracy        = results.get('accuracy_percent')
+            incorrect       = results.get('incorrect', 0)
+            rt_s            = results.get('avg_reaction_time_s')
+            avg_rt_ms       = round(rt_s * 1000, 1) if rt_s else None
+
+        elif module_name == "Memory":
+            final_score     = results.get('score')
+            max_score       = results.get('total_trials')
+            accuracy        = results.get('accuracy_percent')
+            correct         = results.get('score')
+            incorrect       = results.get('incorrect_count')
+            avg_rt_ms       = None
+
+        else:
+            final_score     = results.get('score')
+            max_score       = results.get('total_trials') or results.get('max_score')
+            accuracy        = results.get('accuracy') or results.get('accuracy_percent')
+            correct         = results.get('score') or results.get('correct_answers')
+            incorrect       = results.get('incorrect_answers')
+            avg_rt_ms       = results.get('average_reaction_time_ms')
+
         try:
             self.db.save_game_result(
                 session_id=self.session_id,
@@ -414,12 +457,12 @@ class Consultation:
                 game_number=game_number,
                 started_at=started_at,
                 completed_at=completed_at,
-                final_score=results.get('score'),
-                max_score=results.get('total_trials') or results.get('max_score'),
-                accuracy_percent=results.get('accuracy') or results.get('accuracy_percent'),
-                correct_answers=results.get('score') or results.get('correct_answers'),
-                incorrect_answers=results.get('incorrect_answers'),
-                average_reaction_time_ms=results.get('average_reaction_time_ms'),
+                final_score=final_score,
+                max_score=max_score,
+                accuracy_percent=accuracy,
+                correct_answers=correct,
+                incorrect_answers=incorrect,
+                average_reaction_time_ms=avg_rt_ms,
                 game_data=results,
                 completion_status='completed'
             )
@@ -504,19 +547,10 @@ class Consultation:
 
     def _compile_results(self):
         """Compile all test results into output format."""
-        shape_data = {
-            "scores": self.modules["Shapes"].scores,
-            "question_counts": self.modules["Shapes"].question_counts,
-            "answer_times": self.modules["Shapes"].answer_times
-        }
-
-        spiral_data = {
-            "classification": int(self.modules["Spiral"].classification),
-            "value": self.modules["Spiral"].prediction
-        }
-
-        memory_data = getattr(self.modules["Memory"], 'results', {})
-        trail_data = getattr(self.modules["Trail"], 'results', {})
+        spiral_data  = getattr(self.modules["Spiral"], 'results', {})
+        trail_data   = getattr(self.modules["Trail"],  'results', {})
+        shape_data   = getattr(self.modules["Shapes"], 'results', {})
+        memory_data  = getattr(self.modules["Memory"], 'results', {})
 
         user_id = self.user.id if self.user else None
 

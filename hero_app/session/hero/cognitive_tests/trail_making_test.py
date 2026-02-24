@@ -18,7 +18,7 @@ import time
 import pygame as pg
 
 from hero.consultation.display_screen import DisplayScreen
-from hero.consultation.touch_screen import TouchScreen
+from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
 from hero.consultation.screen import Colours
 
 # Configuration
@@ -352,6 +352,19 @@ class TrailMakingTest:
         self.results['errors'] = self.errors
         self.results['test_type'] = self.test_type
         self.results['difficulty'] = self.difficulty
+
+        # Raw circle path: each waypoint the patient hit in order
+        self.results['circle_path'] = [
+            {
+                'circle': p['circle'],
+                'timestamp_s': round(p['timestamp'], 4),
+                'x': p['position'][0],
+                'y': p['position'][1],
+                'input_method': p['input_method'],
+            }
+            for p in self.path
+        ]
+
         print(f"✓ Trail Making Test complete — {completion_time:.2f}s, {self.errors} errors")
 
     # ------------------------------------------------------------------
@@ -364,23 +377,7 @@ class TrailMakingTest:
         w = int(self.display_size.x)
         h = int(self.display_size.y)
 
-        # Title + instructions
-        font_title = pg.font.Font(None, 28)
-        font_inst  = pg.font.Font(None, 22)
         font_stats = pg.font.Font(None, 26)
-
-        title = font_title.render(
-            f"Trail Making Test — Part {self.test_type}", True, BLACK
-        )
-        surface.blit(title, title.get_rect(center=(w // 2, 18)))
-
-        if not self.completed:
-            if self.input_mode == MODE_STYLUS:
-                inst_str = "Draw continuously through circles: 1 → 2 → 3 ..."
-            else:
-                inst_str = "Click circles in order: 1 → 2 → 3 ..."
-            inst = font_inst.render(inst_str, True, DARK_GRAY)
-            surface.blit(inst, inst.get_rect(center=(w // 2, 42)))
 
         # Completed connecting lines
         for i in range(1, self.current_index):
@@ -403,17 +400,6 @@ class TrailMakingTest:
         for i, circle in enumerate(self.circles):
             circle.draw(surface, is_current=(i == self.current_index))
 
-        # Live stats
-        if self.start_time and not self.completed:
-            elapsed = time.time() - self.start_time
-            surface.blit(
-                font_stats.render(f"Time: {elapsed:.1f}s", True, BLACK), (10, 10)
-            )
-        err_color = RED if self.errors > 0 else BLACK
-        surface.blit(
-            font_stats.render(f"Errors: {self.errors}", True, err_color), (10, 35)
-        )
-
         # Mode indicator
         mode_font = pg.font.Font(None, 20)
         mode_str = "TOUCH" if self.input_mode == MODE_STYLUS else "MOUSE"
@@ -429,35 +415,19 @@ class TrailMakingTest:
         pg.draw.rect(surface, BLACK, box, 2)
         surface.blit(mode_surf, mode_surf.get_rect(center=box.center))
 
-        # Completion overlay
+        # Completion overlay — just white out the bottom screen, top screen handles messaging
         if self.completed and self.results:
             overlay = pg.Surface((w, h), pg.SRCALPHA)
             overlay.fill((255, 255, 255, 220))
             surface.blit(overlay, (0, 0))
 
-            complete_font = pg.font.Font(None, 48)
-            msg = complete_font.render("Test Complete!", True, GREEN)
-            surface.blit(msg, msg.get_rect(center=(w // 2, 80)))
-
-            # lines = [
-                # f"Time: {self.results['completion_time']:.2f}s",
-                # f"Errors: {self.errors}",
-                # f"Path Efficiency: {self.results['path_efficiency']:.1f}%",
-                # f"Path Smoothness: {self.results['path_smoothness']:.1f}%",
-                # f"Pauses: {self.results['pause_count']} ({self.results['total_pause_time']:.1f}s)",
-            # ]
-            # stat_font = pg.font.Font(None, 28)
-            # for i, line in enumerate(lines):
-                # surf = stat_font.render(line, True, BLACK)
-                # surface.blit(surf, surf.get_rect(center=(w // 2, 150 + i * 35)))
-
-            cont_font = pg.font.Font(None, 24)
-            cont = cont_font.render("Continuing in a moment...", True, DARK_GRAY)
-            surface.blit(cont, cont.get_rect(center=(w // 2, h - 40)))
-
     def _update_display(self):
         """Render top and bottom screens."""
-        self.display_screen.instruction = "Trail Making Test"
+        self.display_screen.refresh()
+        if self.completed:
+            self.display_screen.instruction = "Well done!"
+        else:
+            self.display_screen.instruction = "Trail Making Test"
         self.top_screen.blit(self.display_screen.get_surface(), (0, 0))
 
         game_surface = pg.Surface(
@@ -472,24 +442,47 @@ class TrailMakingTest:
     # Entry / Exit
     # ------------------------------------------------------------------
 
+    def _instruction_loop(self):
+        """Show instruction screen — avatar + title on top, plain START button on bottom."""
+        if self.auto_run:
+            return
+
+        self.display_screen.state = 1
+        self.display_screen.refresh()
+        self.display_screen.instruction = None
+
+        info_rect = pg.Rect(0.3 * self.display_size.x, 0, 0.7 * self.display_size.x, 0.8 * self.display_size.y)
+        pg.draw.rect(self.display_screen.surface, Colours.white.value, info_rect)
+        self.display_screen.add_multiline_text("Trail Making Test", rect=info_rect.scale_by(0.9, 0.9), font_size=50)
+
+        # Exactly the same button as Shapes
+        button_rect = pg.Rect((self.display_size - pg.Vector2(300, 200)) / 2, (300, 200))
+        start_button = GameButton(position=button_rect.topleft, size=button_rect.size, text="START", id=1)
+        self.touch_screen.sprites = GameObjects([start_button])
+
+        self.top_screen.blit(self.display_screen.get_surface(), (0, 0))
+        self.bottom_screen.blit(self.touch_screen.get_surface(), (0, 0))
+        pg.display.flip()
+
+        wait = True
+        while wait:
+            for event in pg.event.get():
+                if event.type == pg.MOUSEBUTTONDOWN:
+                    raw = pg.Vector2(pg.mouse.get_pos())
+                    pos = raw - pg.Vector2(0, self.display_size.y)
+                    if self.touch_screen.click_test(pos) is not None:
+                        wait = False
+                elif event.type == pg.QUIT:
+                    wait = False
+
+        self.touch_screen.kill_sprites()
+        self.display_screen.state = 0
+        self.display_screen.refresh()
+
     def entry_sequence(self):
         self.running = True
-
-        if self.parent:
-            self.display_screen.instruction = (
-                "Click the numbered circles\nin order: 1, 2, 3 ..."
-            )
-            self.parent.update_display(
-                display_screen=self.display_screen,
-                touch_screen=self.touch_screen
-            )
-            if self.parent.config.speech:
-                self.parent.speak_text(
-                    "Click the circles in numerical order as fast as you can.",
-                    display_screen=self.display_screen,
-                    touch_screen=self.touch_screen
-                )
-            pg.time.wait(1500)
+        self._instruction_loop()
+        self._update_display()
 
     def exit_sequence(self):
         """Show completion screen briefly then hand back to orchestrator."""
@@ -555,3 +548,4 @@ class TrailMakingTest:
             self._update_display()
 
         self.exit_sequence()
+        

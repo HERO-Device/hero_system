@@ -63,7 +63,6 @@ def augment_data(input_data, spiral_radius, invert_y=False, time_unit="seconds")
         turns=turns,
         theta=angles
     )
-    # print(((data_aug["theta"] / 2 * np.pi * 3) - data_aug["magnitude"]))
     data_aug = data_aug.assign(
         error=((data_aug["theta"] / (2 * np.pi * 3)) - data_aug["magnitude"]) * data_aug["theta"],
         angular_velocity=data_aug["theta"].diff() / data_aug["time"].diff()
@@ -130,6 +129,7 @@ class SpiralTest:
         self.auto_run = auto_run
         self.show_info = False
         self.power_off = False
+        self.results = {}
 
     def update_display(self, top=True):
         if top:
@@ -152,21 +152,15 @@ class SpiralTest:
         return closest_idx, close_coord, min(distances)
 
     def load_surface(self, size=(580, 580), turns=3, clockwise=True):
-        # Create spiral of diameter 1, with midpoint at (0.5, 0.5)
-        n = 500  # Number of points to approximate spiral
-        b = 0.5 / (2 * np.pi)  # Do not alter, ensures the scale is correct
-        theta = np.sqrt(np.linspace(0, (2 * np.pi) ** 2, n))  # Spiral parametrised by theta
+        n = 500
+        b = 0.5 / (2 * np.pi)
+        theta = np.sqrt(np.linspace(0, (2 * np.pi) ** 2, n))
         self.theta_vals = theta * turns
-        x = (b * theta) * np.cos(turns * theta)  # x component of coordinate
-        y = (b * theta) * np.sin(turns * theta)  # y component of coordinate
-        points = np.array(([x + 0.5, y + 0.5])).transpose()  # spiral coordinates: Nx2 np array (N is number of points)
+        x = (b * theta) * np.cos(turns * theta)
+        y = (b * theta) * np.sin(turns * theta)
+        points = np.array(([x + 0.5, y + 0.5])).transpose()
 
-        # Scale to the size of the surface
-        points = np.array([points[:, 0] * size[0], (points[:, 1]) * size[1]]).transpose()  # Scale to size of surface
-
-        # Apply additional options
-        # if not clockwise:
-        #     points[:, 1] = (size[1] - points[:, 1])
+        points = np.array([points[:, 0] * size[0], (points[:, 1]) * size[1]]).transpose()
 
         center_points = points - pg.Vector2(size) / 2
 
@@ -183,11 +177,6 @@ class SpiralTest:
 
         pg.draw.lines(self.touch_screen.base_surface, Colours.black.value, False, points, width=5)
 
-        # screen_rect = self.touch_screen.base_surface.get_rect()
-        # pg.draw.lines(self.touch_screen.base_surface, Colours.red.value, closed=False,
-        #               points=[screen_rect.midtop, screen_rect.midbottom])
-        # pg.draw.lines(self.touch_screen.base_surface, Colours.red.value, closed=False,
-        #               points=[screen_rect.midleft, screen_rect.midright])
         self.target_coords = points
 
     def create_dataframe(self):
@@ -210,6 +199,13 @@ class SpiralTest:
         if self.auto_run:
             self.prediction = np.random.normal(-0.5, 1.5)
             self.classification = self.prediction > 0.5
+            self.results = {
+                'classification': int(bool(self.classification)),
+                'prediction_value': float(self.prediction),
+                'trace_file': None,
+                'augmented_features': None,
+                'n_points': 0,
+            }
             return
 
         self.update_display()
@@ -218,30 +214,54 @@ class SpiralTest:
                                    touch_screen=self.touch_screen)
 
         data_aug = augment_data(self.tracking_data, spiral_radius=self.spiral_size.x / 2)
-        # print(data_aug.tail(20).to_string())
-        # plt.scatter(data_aug["x_pos"], data_aug["y_pos"])
-        # plt.show()
-        #
-        # plt.plot(data_aug["time"], data_aug["theta"])
-        # plt.show()
         spiral_features = create_feature(data_aug)
 
         try:
             prediction = self.prediction_model.predict(spiral_features.values.reshape(1, -1))
         except ValueError:
-            print("⚠ Spiral prediction failed (NaN in features), defaulting to 0")
+            print("Spiral prediction failed (NaN in features), defaulting to 0")
             prediction = [0]
 
         self.prediction = prediction[0]
         try:
             self.classification = self.prediction > 0.5
         except ValueError:
-            print("F")
-            classification = [0]
+            self.classification = False
 
         if self.parent:
             if self.parent.pi:
                 pg.mouse.set_visible(False)
+
+        # Save raw trace to CSV linked to session
+        trace_file = None
+        session_id = getattr(getattr(self, 'parent', None), 'session_id', None)
+        try:
+            import os as _os
+            trace_dir = _os.path.join("data", "traces")
+            _os.makedirs(trace_dir, exist_ok=True)
+            fname = f"{session_id}_spiral.csv" if session_id else "spiral_trace.csv"
+            trace_path = _os.path.join(trace_dir, fname)
+            self.tracking_data.to_csv(trace_path, index=False)
+            trace_file = trace_path
+            print(f"Spiral trace saved to {trace_path}")
+        except Exception as e:
+            print(f"Could not save spiral trace: {e}")
+
+        # Mean of each augmented feature for DB storage
+        augmented_features = None
+        try:
+            augmented_features = {col: round(float(spiral_features[col]), 6)
+                                  for col in spiral_features.index}
+        except Exception:
+            pass
+
+        self.results = {
+            'classification': int(bool(self.classification)),
+            'prediction_value': float(self.prediction),
+            'trace_file': trace_file,
+            'augmented_features': augmented_features,
+            'n_points': int(len(self.tracking_data)),
+        }
 
     def process_input(self, pos):
         start = time.monotonic()
@@ -251,7 +271,6 @@ class SpiralTest:
 
         update_flag = False
         if self.draw_trace:
-            # PLOT BLUE LINE HERE
             pg.draw.line(self.touch_screen.base_surface, Colours.blue.value,
                          self.prev_pos + self.center_offset, pos, width=3)
             update_flag = True
@@ -274,10 +293,7 @@ class SpiralTest:
         if update_flag:
             self.update_display(top=False)
 
-        # print(f"process time: {time.monotonic() - start}")
-
     def button_actions(self, selected):
-
         if selected == Buttons.info and not self.power_off:
             self.show_info = not self.show_info
             self.toggle_info_screen()
@@ -289,12 +305,10 @@ class SpiralTest:
 
             if self.power_off:
                 self.display_screen.instruction = None
-
                 self.update_display(top=True)
             else:
                 self.touch_screen.refresh()
                 self.toggle_info_screen()
-
         else:
             ...
             print("Power")
@@ -305,15 +319,10 @@ class SpiralTest:
             self.display_screen.instruction = None
 
             info_rect = pg.Rect(0.3 * self.display_size.x, 0, 0.7 * self.display_size.x, 0.8 * self.display_size.y)
-            pg.draw.rect(self.display_screen.surface, Colours.white.value,
-                         info_rect)
+            pg.draw.rect(self.display_screen.surface, Colours.white.value, info_rect)
 
             self.display_screen.add_multiline_text("Trace the spiral!", rect=info_rect.scale_by(0.9, 0.9),
                                                    font_size=50)
-            # info_text = ("In this game you must select the bottom card that you think matches the top card "
-            #              "You must work out how to match the cards from me telling you if you are correct or not. "
-            #              "The way in which cards match will change throughout the game, so you must adapt for this too! "
-            #              "An example of a match is shown below.")
 
             info_text = (
                 "In this game you must trace the spiral using the pen provided. Make sure that the red line follows "
@@ -354,16 +363,11 @@ class SpiralTest:
 
                 for idx in range(1, sim_positions.shape[0]):
                     pos = pg.Vector2(sim_positions[idx, :].tolist())
-
                     self.process_input(pos)
                     self.prev_pos = pos - self.center_offset
 
-                    # if idx == 100:
-                    #     take_screenshot(self.window, "spiral_test")
-
                 self.tracking_data.loc[:, "time"] = np.cumsum(sigma * np.random.randn(sim_positions.shape[0]) + mu)
 
-                # self.auto_run = False
                 self.running = False
             else:
                 for event in pg.event.get():
@@ -414,6 +418,6 @@ if __name__ == "__main__":
 
     spiral_test = SpiralTest(turns=3, draw_trace=True, auto_run=True, spiral_size=600)
 
-    spiral_test.loop()  # optionally extract data from here as array
+    spiral_test.loop()
     print(spiral_test.classification, spiral_test.prediction)
-    # print(spiral_test.tracking_data)
+    
