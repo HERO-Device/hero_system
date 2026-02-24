@@ -38,12 +38,14 @@ class EEGConfig:
     # Hardware settings - OpenBCI Ganglion
     board_id: int = BoardIds.GANGLION_BOARD.value
     serial_port: str = ''
+    mac_address: str = ''
     num_channels: int = 4
 
     # Sampling settings
     sampling_rate: int = 200  # Ganglion native sampling rate
     buffer_size: int = 512  # Samples to collect before processing
     collection_interval: float = 0.005  # 200 Hz = 5ms between samples
+    eeg_poll_interval: float = 0.1  # Poll brainflow buffer every 100ms
 
     # Signal processing
     bandpass_low: float = 3.0
@@ -75,7 +77,7 @@ class EEGConfig:
     processing_interval: int = 512  # Process every N samples
 
     @classmethod
-    def for_calibration(cls, serial_port: str = '') -> 'EEGConfig':
+    def for_calibration(cls, serial_port: str = '', mac_address: str = '') -> 'EEGConfig':
         """Configuration for calibration phase - real-time processing enabled"""
         config = cls(
             mode='calibration',
@@ -87,7 +89,7 @@ class EEGConfig:
         return config
 
     @classmethod
-    def for_session(cls, serial_port: str = '') -> 'EEGConfig':
+    def for_session(cls, serial_port: str = '', mac_address: str = '') -> 'EEGConfig':
         """Configuration for active session - collection only"""
         config = cls(
             mode='session',

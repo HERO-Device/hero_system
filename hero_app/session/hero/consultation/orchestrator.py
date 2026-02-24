@@ -74,7 +74,7 @@ class Consultation:
     def __init__(self, enable_speech=True, scale=1, pi=True, authenticate=True,
                  seamless=True, username=None, password=None, consult_date=None,
                  auto_run=False, wct_turns=20, pss_questions=10, db_client=None,
-                 local=True, db=None, clock=None):
+                 local=True, db=None, clock=None, on_session_start=None):
         """
         Initialize Consultation.
 
@@ -113,6 +113,7 @@ class Consultation:
 
         # Central clock — falls back to datetime.now() if not provided
         self.clock = clock
+        self.on_session_start = on_session_start
 
         # Audio temp directory
         self.audio_temp_dir = "temp/question_audio"
@@ -214,7 +215,7 @@ class Consultation:
             )
 
         # Test execution order
-        self.module_order = ["Login", "Spiral", "Shapes", "Memory", "Trail"]
+        self.module_order = ["Login", "Spiral", "Trail", "Shapes", "Memory"]
         self.module_idx = 0
 
         # State
@@ -391,6 +392,8 @@ class Consultation:
                 notes=f"Consultation {self.id}"
             )
             print(f"✓ DB session started: {self.session_id}")
+            if self.on_session_start:
+                self.on_session_start(self.session_id)
         except Exception as e:
             print(f"⚠ Could not start DB session: {e}")
 

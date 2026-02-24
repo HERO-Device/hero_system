@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'her
 from db.db_access import HeroDB
 from hero_core.coordinator.clock import CentralClock
 from hero_app.session.hero.consultation.orchestrator import Consultation
+import subprocess
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,7 +36,7 @@ logger = logging.getLogger('hero')
 # ------------------------------------------------------------------
 
 PI_MODE       = False   # Set True on Raspberry Pi
-SCALE         = 0.8     # Scale factor for laptop testing
+SCALE         = 0.9     # Scale factor for laptop testing
 ENABLE_SPEECH = False   # Set True on Pi with audio configured
 
 
@@ -43,25 +44,31 @@ ENABLE_SPEECH = False   # Set True on Pi with audio configured
 # Sensor stubs — replace with real SensorCoordinator when ready
 # ------------------------------------------------------------------
 
-def start_sensors(session_id, clock):
-    """Stub — replace with real sensor startup when hardware ready."""
-    logger.info("⚠ Sensors stubbed — skipping hardware init")
-    # When ready:
-    # from hero_system.sensors.imu import IMUSensor
-    # from hero_core.coordinator.coordinator import SensorCoordinator
-    # coordinator = SensorCoordinator(session_id=session_id, db_session=db.session)
-    # coordinator.register_sensor('imu', IMUSensor())
-    # coordinator.start_all_sensors()
-    # return coordinator
-    return None
+def start_sensors(session_id, clock=None, db_session=None):
+    """Spawn sensor collection as an independent process."""
+    logger.info(f"Spawning sensor process for session {session_id}...")
+    try:
+        venv_python = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   '..', '.venv', 'bin', 'python3')
+        runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sensor_runner.py')
+        proc = subprocess.Popen(
+            [venv_python, runner, str(session_id)],
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        logger.info(f"✓ Sensor process started (PID {proc.pid})")
+        return proc
+    except Exception as e:
+        logger.error(f"✗ Sensor process failed: {e}")
+        return None
 
 
-def stop_sensors(coordinator):
-    """Stub — replace with real sensor shutdown when hardware ready."""
-    logger.info("⚠ Sensors stubbed — skipping hardware stop")
-    # When ready:
-    # if coordinator:
-    #     coordinator.stop_all_sensors()
+def stop_sensors(proc):
+    """Stop the sensor process."""
+    if proc and proc.poll() is None:
+        logger.info(f"Stopping sensor process (PID {proc.pid})...")
+        proc.terminate()
+        proc.wait(timeout=30)
+        logger.info("✓ Sensor process stopped")
 
 
 # ------------------------------------------------------------------
@@ -97,7 +104,24 @@ def main():
         pg.event.pump()
 
         # 4. Start sensors (stubbed — session_id set after login)
-        coordinator = start_sensors(session_id=None, clock=clock)
+        pipeline = None
+
+        def on_session_start(session_id):
+            nonlocal pipeline
+            import time
+            pipeline = start_sensors(session_id=session_id)
+            # Wait for sensors to be ready (max 15s)
+            ready_file = f"/tmp/hero_sensors_ready_{session_id}"
+            for _ in range(30):
+                if os.path.exists(ready_file):
+                    os.remove(ready_file)
+                    logger.info("✓ Sensors ready")
+                    break
+                time.sleep(0.5)
+            else:
+                logger.warning("⚠ Sensors did not signal ready in time")
+
+        coordinator = None  # Will be set via callback
 
         # 5. Run consultation — pass in db and shared clock
         logger.info("Starting consultation...")
@@ -111,12 +135,13 @@ def main():
             scale=SCALE,
             db=db,
             clock=clock,         # Shared clock for synchronized timestamps
+            on_session_start=on_session_start,
         )
 
         consult.loop()
 
         # 6. Stop sensors
-        stop_sensors(coordinator)
+        stop_sensors(pipeline)
 
     except KeyboardInterrupt:
         logger.info("Interrupted by user")

@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 from uuid import UUID
 
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'max30102_lib'))
 from max30102 import MAX30102
 
 from .config import MAX30102Config
@@ -155,33 +157,19 @@ class MAX30102Collector:
             try:
                 # Read single sample
                 red, ir = self.sensor.read_fifo()
-                
+
                 if red and ir:
-                    timestamp = self.coordinator.get_central_timestamp()
-                    
-                    # Store in buffers
+                    # Keep local buffers for any future real-time processing
                     self.ir_buffer.append(ir)
                     self.red_buffer.append(red)
-                    
-                    # Keep buffers at configured size
+
                     if len(self.ir_buffer) > self.config.buffer_size:
                         self.ir_buffer.pop(0)
                         self.red_buffer.pop(0)
-                    
-                    self.sample_count += 1
-                    
-                    # Batch commit
-                    if self.sample_count % self.config.batch_commit_size == 0:
-                        try:
-                            self.db_session.commit()
-                        except Exception as e:
-                            logger.error(f"Commit error: {e}")
-                            self.db_session.rollback()
-                    
-                    # Real-time processing if in calibration mode
-                    #if self.config.realtime_processing and len(self.ir_buffer) == self.config.buffer_size:
-                    #    self._process_realtime()
-                
+
+                    # Persist raw sample to the database
+                    self._store_raw_sample(ir, red)
+
                 time.sleep(self.config.collection_interval)
                 
             except Exception as e:
@@ -292,4 +280,4 @@ class MAX30102Collector:
     def __repr__(self):
         status = "running" if self.is_running else "stopped"
         return f"<MAX30102Collector(status={status})>"
-    
+        

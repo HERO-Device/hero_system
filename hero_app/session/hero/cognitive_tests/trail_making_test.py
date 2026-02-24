@@ -238,7 +238,7 @@ class TrailMakingTest:
         self.completed = False
         self.drawing = False
         self.draw_path = []
-        self.input_mode = MODE_MOUSE
+        self.input_mode = MODE_STYLUS
         self.metrics = PerformanceMetrics()
 
         # Results
@@ -439,17 +439,17 @@ class TrailMakingTest:
             msg = complete_font.render("Test Complete!", True, GREEN)
             surface.blit(msg, msg.get_rect(center=(w // 2, 80)))
 
-            lines = [
-                f"Time: {self.results['completion_time']:.2f}s",
-                f"Errors: {self.errors}",
-                f"Path Efficiency: {self.results['path_efficiency']:.1f}%",
-                f"Path Smoothness: {self.results['path_smoothness']:.1f}%",
-                f"Pauses: {self.results['pause_count']} ({self.results['total_pause_time']:.1f}s)",
-            ]
-            stat_font = pg.font.Font(None, 28)
-            for i, line in enumerate(lines):
-                surf = stat_font.render(line, True, BLACK)
-                surface.blit(surf, surf.get_rect(center=(w // 2, 150 + i * 35)))
+            # lines = [
+                # f"Time: {self.results['completion_time']:.2f}s",
+                # f"Errors: {self.errors}",
+                # f"Path Efficiency: {self.results['path_efficiency']:.1f}%",
+                # f"Path Smoothness: {self.results['path_smoothness']:.1f}%",
+                # f"Pauses: {self.results['pause_count']} ({self.results['total_pause_time']:.1f}s)",
+            # ]
+            # stat_font = pg.font.Font(None, 28)
+            # for i, line in enumerate(lines):
+                # surf = stat_font.render(line, True, BLACK)
+                # surface.blit(surf, surf.get_rect(center=(w // 2, 150 + i * 35)))
 
             cont_font = pg.font.Font(None, 24)
             cont = cont_font.render("Continuing in a moment...", True, DARK_GRAY)
