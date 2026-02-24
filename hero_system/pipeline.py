@@ -112,7 +112,7 @@ class SensorPipeline:
         self._init_mpu6050()
         self._init_max30102()
         self._init_eeg()
-#        self._init_eye_tracking()  # disabled — pending calibration
+        # self._init_eye_tracking()  # disabled
 
         logger.info(
             f"Pipeline ready — active: {self._active_sensors or 'none'} | "
@@ -235,7 +235,11 @@ class SensorPipeline:
             from hero_system.sensors.eeg.collector import EEGCollector
             from hero_system.sensors.eeg.config import EEGConfig
 
-            config = EEGConfig.for_session(serial_port='/dev/ttyACM0')
+            import glob
+            ports = sorted(glob.glob('/dev/ttyACM*'))
+            serial_port = ports[0] if ports else '/dev/ttyACM0'
+            logger.info(f"EEG using serial port: {serial_port}")
+            config = EEGConfig.for_session(serial_port=serial_port)
             config.mac_address = 'cb:1c:86:2e:73:2c'
             collector = EEGCollector(
                 session_id=self.session_id,
@@ -271,7 +275,20 @@ class SensorPipeline:
         sensor_name = SENSOR_EYE_TRACKING
         try:
             from hero_system.sensors.eye_tracking.processor import EyeTrackingProcessor
+            from hero_system.sensors.eye_tracking.calibrator import EyeTrackingCalibrator
             from hero_system.sensors.eye_tracking.config import EyeTrackingConfig
+
+            # Load calibration saved during the pre-session calibration stage
+            logger.info(f"Looking for eye tracking calibration for session {self.session_id}")
+            calibration_data = EyeTrackingCalibrator.load_from_database(
+                self._new_session(), self.session_id
+            )
+            logger.info(f"Calibration data found: {calibration_data is not None}")
+            if calibration_data is None:
+                logger.warning("⚠ No eye tracking calibration found — skipping eye tracking")
+                self._handle_sensor_failure(sensor_name,
+                    Exception("No calibration data found for this session"))
+                return
 
             config = EyeTrackingConfig.for_session()
             processor = EyeTrackingProcessor(
@@ -280,9 +297,8 @@ class SensorPipeline:
                 coordinator=self.coordinator,
                 config=config,
             )
+            processor.load_calibration(calibration_data)
 
-            # Eye tracking uses a processor (not a separate collector) since
-            # all processing is inline — register under the same interface.
             self.coordinator.register_sensor(sensor_name, processor, config)
             self.coordinator.start_sensor(sensor_name)
 
@@ -295,9 +311,9 @@ class SensorPipeline:
                 status='active',
                 sampling_rate_hz=fps,
                 params={
-                    'camera'  : 'ArduCam Pinsight AI (DepthAI)',
-                    'mode'    : config.mode,
-                    'fps'     : fps,
+                    'camera': 'ArduCam Pinsight AI (DepthAI)',
+                    'mode'  : config.mode,
+                    'fps'   : fps,
                 },
             )
             logger.info(f"✓ Eye tracking initialised ({fps} fps)")
@@ -382,3 +398,4 @@ class SensorPipeline:
             f"active={self._active_sensors}, "
             f"failed={self._failed_sensors})>"
         )
+        

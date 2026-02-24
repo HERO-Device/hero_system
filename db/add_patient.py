@@ -67,8 +67,8 @@ def main():
     try:
         print("  Enter patient details:\n")
 
-        username  = prompt("Username (e.g. john_doe)")
-        password  = prompt("Password", secret=True)
+        username  = prompt("Username (e.g. johndoe NO UNDERSCORES/NUMBERS)")
+        password  = prompt("Password NO UNDERSCORES/NUMBERS", secret=True)
         full_name = prompt("Full name (e.g. John Doe)")
         email     = prompt("Email (optional)", required=False)
         dob_str   = prompt("Date of birth DD/MM/YYYY (optional)", required=False)

@@ -7,6 +7,12 @@ from datetime import date, datetime
 from enum import Enum
 import subprocess
 
+try:
+    import gpiod
+    from gpiod.line import Direction, Value
+except ImportError:
+    gpiod = None
+
 
 
 def sigmoid(x):
@@ -70,24 +76,23 @@ class ButtonModule:
     def __init__(self, pi=True):
         self.pi = pi
         if self.pi:
-            gpiod = __import__('gpiod')
-
             # Define Raspberry Pi button pins
             self.button_dict = {
-                4: "Home",  # Pin number 7
-                17: "Vol_Down",  # Pin number 11
-                23: "Info",  # Pin number 16
-                27: "Power",  # Pin number 13
-                22: "Vol_Up",  # Pin number 15
+                4:  "Home",
+                17: "Vol_Down",
+                23: "Info",
+                27: "Power",
+                22: "Vol_Up",
             }
-            # LED_PIN = 17
 
-            chip = gpiod.Chip('gpiochip4')
-            # led_line = chip.get_line(LED_PIN)
-            self.button_lines = [(chip.get_line(pin_num), self.button_dict[pin_num]) for pin_num in self.button_dict.keys()]
-            # led_line.request(consumer="LED", type=gpiod.LINE_REQ_DIR_OUT)
-            for (line, name) in self.button_lines:
-                line.request(consumer="Button", type=gpiod.LINE_REQ_DIR_IN)
+            self.button_lines = []
+            for pin_num, name in self.button_dict.items():
+                line_req = gpiod.request_lines(
+                    '/dev/gpiochip4',
+                    consumer="HeroButton",
+                    config={pin_num: gpiod.LineSettings(direction=Direction.INPUT)}
+                )
+                self.button_lines.append((pin_num, line_req, name))
         else:
 
             self.button_dict = {
@@ -112,8 +117,8 @@ class ButtonModule:
 
     def check_pressed(self):
         if self.pi:
-            for idx, (line, name) in enumerate(self.button_lines):
-                button_state = line.get_value()
+            for (pin_num, line_req, name) in self.button_lines:
+                button_state = line_req.get_value(pin_num) == Value.ACTIVE
 
                 if button_state and not self.states[name]:
                     self.states[name] = button_state
@@ -122,15 +127,12 @@ class ButtonModule:
                         self.volume = min([100, self.volume + 10])
                         proc = subprocess.Popen(f'/usr/bin/amixer sset Master {self.volume}%', shell=True, stdout=subprocess.PIPE)
                         proc.wait()
-                        print(f"Volume up: {self.volume}")
                         return None
 
                     elif self.buttons(name) == Buttons.vol_down:
                         self.volume = max([0, self.volume - 10])
-                        proc = subprocess.Popen(f'/usr/bin/amixer sset Master {self.volume}%', shell=True,
-                                                stdout=subprocess.PIPE)
+                        proc = subprocess.Popen(f'/usr/bin/amixer sset Master {self.volume}%', shell=True, stdout=subprocess.PIPE)
                         proc.wait()
-                        print(f"Vol down: {self.volume}")
                         return None
 
                     return self.buttons(name)
@@ -170,3 +172,4 @@ if __name__ == "__main__":
             pressed = buttons.check_pressed()
             if pressed:
                 print(f"{pressed}!")
+                

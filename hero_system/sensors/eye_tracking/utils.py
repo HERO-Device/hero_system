@@ -1,187 +1,39 @@
 """
-Eye Tracking Utility Functions
-Rotation matrices, normalization, and coordinate transformations
-Directly from original implementation
+Eye Tracking Shared Utilities
+Used by calibrator.py and processor.py
 """
 
-import math
+import cv2
 import numpy as np
+from .config import EyeTrackingConfig
 
 
-def rot_x(a: float) -> np.ndarray:
-    """
-    Rotation matrix around X-axis
-
-    Args:
-        a: Angle in radians
-
-    Returns:
-        3x3 rotation matrix
-    """
-    ca, sa = math.cos(a), math.sin(a)
-    return np.array([
-        [1, 0, 0],
-        [0, ca, -sa],
-        [0, sa, ca]
-    ], dtype=float)
+def correct_frame(frame: np.ndarray, flip_code: int) -> np.ndarray:
+    return cv2.flip(frame, flip_code)
 
 
-def rot_y(a: float) -> np.ndarray:
-    """
-    Rotation matrix around Y-axis
+def extract_features(landmarks, img_w: int, img_h: int, config: EyeTrackingConfig) -> np.ndarray:
+    """4-element feature vector: normalised iris position within eye corners."""
+    def norm_iris(iris_idx, inner_idx, outer_idx):
+        iris  = landmarks[iris_idx]
+        inner = landmarks[inner_idx]
+        outer = landmarks[outer_idx]
+        ix, iy = iris.x * img_w,  iris.y * img_h
+        inx    = inner.x * img_w
+        outx   = outer.x * img_w
+        eye_w  = abs(inx - outx) + 1e-6
+        eye_cy = (inner.y + outer.y) / 2 * img_h
+        return (ix - outx) / eye_w, ((iy - eye_cy) * 5) / eye_w
 
-    Args:
-        a: Angle in radians
-
-    Returns:
-        3x3 rotation matrix
-    """
-    ca, sa = math.cos(a), math.sin(a)
-    return np.array([
-        [ca, 0, sa],
-        [0, 1, 0],
-        [-sa, 0, ca]
-    ], dtype=float)
-
-
-def normalize(v: np.ndarray) -> np.ndarray:
-    """
-    Normalize a vector
-
-    Args:
-        v: Vector to normalize
-
-    Returns:
-        Normalized vector (or original if norm too small)
-    """
-    v = np.asarray(v, dtype=float)
-    n = np.linalg.norm(v)
-    return v / n if n > 1e-9 else v
+    lx, ly = norm_iris(config.left_iris_idx,  config.left_eye_inner,  config.left_eye_outer)
+    rx, ry = norm_iris(config.right_iris_idx, config.right_eye_inner, config.right_eye_outer)
+    return np.array([lx, ly, rx, ry], dtype=np.float32)
 
 
-def compute_scale(points_3d: np.ndarray) -> float:
-    """
-    Compute average pairwise distance between 3D points
-    Used for scale-invariant head tracking
-
-    Args:
-        points_3d: Nx3 array of 3D points
-
-    Returns:
-        Average pairwise distance
-    """
-    n = len(points_3d)
-    total = 0.0
-    count = 0
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            dist = np.linalg.norm(points_3d[i] - points_3d[j])
-            total += dist
-            count += 1
-
-    return total / count if count > 0 else 1.0
-
-
-def draw_wireframe_cube(
-        frame: np.ndarray,
-        center: np.ndarray,
-        R: np.ndarray,
-        size: int = 80,
-        color: tuple = (255, 128, 0),
-        thickness: int = 2
-):
-    """
-    Draw a wireframe cube aligned with rotation matrix
-    Used for head pose visualization
-
-    Args:
-        frame: Image to draw on
-        center: 3D center position
-        R: 3x3 rotation matrix
-        size: Cube size
-        color: BGR color tuple
-        thickness: Line thickness
-    """
-    import cv2
-
-    # Coordinate frame from rotation matrix
-    right = R[:, 0]
-    up = -R[:, 1]
-    forward = -R[:, 2]
-
-    hw, hh, hd = size * 1, size * 1, size * 1
-
-    def corner(x_sign, y_sign, z_sign):
-        return (
-                center +
-                x_sign * hw * right +
-                y_sign * hh * up +
-                z_sign * hd * forward
-        )
-
-    # Generate 8 corners
-    corners = [
-        corner(x, y, z)
-        for x in [-1, 1]
-        for y in [1, -1]
-        for z in [-1, 1]
-    ]
-
-    # Project to 2D
-    projected = [(int(pt[0]), int(pt[1])) for pt in corners]
-
-    # Define cube edges
-    edges = [
-        (0, 1), (1, 3), (3, 2), (2, 0),  # Front face
-        (4, 5), (5, 7), (7, 6), (6, 4),  # Back face
-        (0, 4), (1, 5), (2, 6), (3, 7)  # Connecting edges
-    ]
-
-    # Draw edges
-    for i, j in edges:
-        cv2.line(frame, projected[i], projected[j], color, thickness)
-
-
-def draw_coordinate_axes(
-        frame: np.ndarray,
-        center: np.ndarray,
-        R: np.ndarray,
-        size: int = 80
-):
-    """
-    Draw RGB coordinate axes (X=red, Y=green, Z=blue)
-
-    Args:
-        frame: Image to draw on
-        center: 3D center position
-        R: 3x3 rotation matrix
-        size: Axis length
-    """
-    import cv2
-
-    axis_length = size * 1.2
-
-    # Axis directions from rotation matrix
-    axis_dirs = [
-        R[:, 0],  # X-axis (right)
-        -R[:, 1],  # Y-axis (up)
-        -R[:, 2]  # Z-axis (forward)
-    ]
-
-    # RGB colors for XYZ
-    axis_colors = [
-        (0, 0, 255),  # Red for X
-        (0, 255, 0),  # Green for Y
-        (255, 0, 0)  # Blue for Z
-    ]
-
-    for i in range(3):
-        end_pt = center + axis_dirs[i] * axis_length
-        cv2.line(
-            frame,
-            (int(center[0]), int(center[1])),
-            (int(end_pt[0]), int(end_pt[1])),
-            axis_colors[i],
-            2
-        )
+# Legacy stubs — kept so any remaining imports don't break
+def rot_x(a): pass
+def rot_y(a): pass
+def normalize(v): return v
+def compute_scale(pts): return 1.0
+def draw_wireframe_cube(*a, **k): pass
+def draw_coordinate_axes(*a, **k): pass

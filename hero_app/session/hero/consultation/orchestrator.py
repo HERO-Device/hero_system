@@ -10,12 +10,15 @@ Manages the complete patient assessment workflow including:
 
 import datetime
 import json
+import logging
 import os
 import re
 import shutil
 import string
 import time
 from datetime import date, timezone
+
+logger = logging.getLogger(__name__)
 
 import gtts
 import numpy as np
@@ -139,17 +142,31 @@ class Consultation:
         else:
             self.all_user_data = None
 
-        # Initialize pygame window
+        # Initialize pygame window — spans both physical screens (1024x1200)
+        os.environ['SDL_VIDEO_WINDOW_POS'] = "1029,600"
         if pi:
             self.window = pg.display.set_mode(
-                (self.display_size.x, self.display_size.y * 2),
+                (int(self.display_size.x), int(self.display_size.y * 2)),
                 pg.NOFRAME | pg.SRCALPHA
             )
         else:
             self.window = pg.display.set_mode(
-                (self.display_size.x, self.display_size.y * 2),
+                (int(self.display_size.x), int(self.display_size.y * 2)),
                 pg.SRCALPHA
             )
+
+        # Force window to correct position on combined display
+        try:
+            import ctypes
+            wm_info = pg.display.get_wm_info()
+            print(f"WM info keys: {list(wm_info.keys())}")
+            if 'window' in wm_info:
+                import subprocess
+                subprocess.Popen(['bash', '-c',
+                    'sleep 0.5 && wmctrl -r :ACTIVE: -e 0,1029,600,-1,-1'
+                ])
+        except Exception as e:
+            print(f"Window positioning failed: {e}")
 
         # Create dual screens
         self.top_screen = self.window.subsurface(((0, 0), self.display_size))
@@ -364,10 +381,10 @@ class Consultation:
     def take_screenshot(self, filename=None):
         """Take screenshot of current display."""
         if not CV2_AVAILABLE:
-            print("⚠ Screenshot unavailable: cv2 not installed")
+
             return
 
-        print("Taking Screenshot")
+
         img_array = pg.surfarray.array3d(self.window)
         img_array = cv2.transpose(img_array)
         img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
@@ -391,7 +408,7 @@ class Consultation:
                 user_id=self.user.id,
                 notes=f"Consultation {self.id}"
             )
-            print(f"✓ DB session started: {self.session_id}")
+            logger.info("✓ DB session started: {self.session_id}")
             if self.on_session_start:
                 self.on_session_start(self.session_id)
         except Exception as e:
@@ -466,9 +483,10 @@ class Consultation:
                 game_data=results,
                 completion_status='completed'
             )
-            print(f"✓ Saved {module_name} result to DB")
+
         except Exception as e:
-            print(f"⚠ Could not save {module_name} result: {e}")
+            logger.warning(f"Error: {e}")
+
     
     def _log_game_event(self, module_name, game_number, event_type, timestamp):
         """Log a game_start or game_end event."""
@@ -486,8 +504,70 @@ class Consultation:
                 event_data={'consultation_id': self.id},
             )
         except Exception as e:
-            print(f"⚠ Could not log {event_type} for {module_name}: {e}")
+            logger.warning(f"Error: {e}")
+
     
+    def _run_eye_tracking_calibration(self):
+        """
+        Run 9-point eye tracking calibration after login.
+        Saves polynomial model coefficients to DB for use by the sensor pipeline.
+        Shows a simple status screen on the pygame display before/after.
+        Skips gracefully if camera not available.
+        """
+        if not self.session_id:
+
+            return
+
+        # Show "calibrating..." screen
+        self.display_screen.refresh()
+        self.display_screen.instruction = "Eye Tracking Calibration — starting..."
+        self.update_display()
+
+        try:
+            from hero_system.sensors.eye_tracking.calibrator import EyeTrackingCalibrator
+            from hero_system.sensors.eye_tracking.config import EyeTrackingConfig
+            from hero_core.database.models.connection import get_db_connection
+
+            _, db_session = get_db_connection(
+                host='localhost', port=5432, user='postgres',
+                password='pgdbadmin', dbname='hero_db'
+            )
+
+            config = EyeTrackingConfig.for_calibration()
+            calibrator = EyeTrackingCalibrator(
+                session_id=self.session_id,
+                db_session=db_session,
+                config=config,
+            )
+
+            # Pygame must yield display to OpenCV for calibration window
+            pg.display.iconify()
+
+            calibrator.start()
+            success = calibrator.run_calibration()
+
+            if success:
+                calibrator.save_to_database()
+
+            calibrator.stop()
+            db_session.close()
+
+        except Exception as e:
+            print(f"⚠ Eye tracking calibration failed (continuing without): {e}")
+
+        finally:
+            # Restore pygame window
+            pg.display.set_mode(
+                (self.display_size.x, self.display_size.y * 2),
+                pg.NOFRAME | pg.SRCALPHA if self.pi else pg.SRCALPHA
+            )
+            self.top_screen    = self.window.subsurface(((0, 0), self.display_size))
+            self.bottom_screen = self.window.subsurface(
+                (0, self.display_size.y), self.display_size
+            )
+            self.display_screen.instruction = "Calibration complete — starting tests"
+            self.update_display()
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -505,25 +585,19 @@ class Consultation:
 
         self.display_screen.power_off = True
         self.touch_screen.power_off = True
-
-        proc_surf = self.fonts.normal.render(
-            "Processing...",
-            True,
-            Colours.hero_blue.value
-        )
-
-        disp_copy = self.display_screen.power_off_surface.copy()
-        self.display_screen.power_off_surface.blit(
-            proc_surf,
-            (self.display_size - proc_surf.get_size()) / 2 + pg.Vector2(0, 100)
-        )
         self.update_display()
+
+        # Wait for a screen press or any key before closing
+        pg.event.clear()
+        waiting = True
+        while waiting:
+            for event in pg.event.get():
+                if event.type in (pg.MOUSEBUTTONDOWN, pg.FINGERDOWN, pg.KEYDOWN):
+                    waiting = False
+            time.sleep(0.05)
 
         if "Affective" in self.modules:
             self.modules["Affective"].exit_sequence()
-
-        self.display_screen.power_off_surface = disp_copy
-        self.update_display()
 
         # Save local JSON backup
         if self.local:
@@ -534,16 +608,15 @@ class Consultation:
         if self.db and self.session_id:
             try:
                 self.db.end_session(self.session_id)
-                print(f"✓ DB session ended: {self.session_id}")
             except Exception as e:
-                print(f"⚠ Could not end DB session: {e}")
+                logger.warning(f"Error: {e}")
 
         try:
             shutil.rmtree("temp/question_audio")
         except Exception:
             pass
 
-        print(f"Successfully completed consultation {self.id}")
+
 
     def _compile_results(self):
         """Compile all test results into output format."""
@@ -585,7 +658,7 @@ class Consultation:
         with open(consult_path, "w") as f:
             json.dump(self.output, f, cls=NpEncoder, indent=4)
 
-        print(f"✓ Results saved locally: {consult_path}")
+
 
     # ------------------------------------------------------------------
     # Main loop
@@ -631,6 +704,10 @@ class Consultation:
                     if event.type == pg.KEYDOWN:
                         if event.key == pg.K_ESCAPE:
                             self.running = False
+                        elif event.key == pg.K_z and (pg.key.get_mods() & pg.KMOD_CTRL):
+                            import sys
+                            pg.quit()
+                            sys.exit(0)
                         elif event.key == pg.K_s:
                             self.take_screenshot()
 
@@ -684,7 +761,7 @@ class Consultation:
 
 # Standalone testing
 if __name__ == "__main__":
-    os.environ['SDL_VIDEO_WINDOW_POS'] = "0,0"
+    os.environ['SDL_VIDEO_WINDOW_POS'] = "1029,600"  # Top physical screen (HDMI-A-2)
     pg.init()
     pg.font.init()
     pg.event.pump()

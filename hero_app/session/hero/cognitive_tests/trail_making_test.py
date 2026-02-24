@@ -365,7 +365,7 @@ class TrailMakingTest:
             for p in self.path
         ]
 
-        print(f"✓ Trail Making Test complete — {completion_time:.2f}s, {self.errors} errors")
+
 
     # ------------------------------------------------------------------
     # Drawing

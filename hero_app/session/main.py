@@ -2,7 +2,7 @@ import os
 import sys
 import pygame as pg
 
-os.environ['SDL_VIDEO_WINDOW_POS'] = "0,0"
+os.environ['SDL_VIDEO_WINDOW_POS'] = "1029,600"  # Top physical screen (HDMI-A-2)
 
 pg.init()
 pg.font.init()
@@ -36,3 +36,4 @@ consult.loop()
 
 if db:
     db.close()
+    

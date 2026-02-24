@@ -1,0 +1,275 @@
+{
+    "consult_id": "hvuckr1a2bqs634",
+    "user_id": "921c96ba-c576-4aad-8e06-88a21c1fdc21",
+    "consult_time": "2026-02-24",
+    "consult_data": {
+        "shape": {
+            "total_questions": 5,
+            "correct": 5,
+            "incorrect": 0,
+            "accuracy_percent": 100.0,
+            "avg_reaction_time_s": 1.529,
+            "trial_log": [
+                {
+                    "question_num": 1,
+                    "correct": true,
+                    "reaction_time_s": 1.5368,
+                    "patient_said_same": true,
+                    "was_same": true
+                },
+                {
+                    "question_num": 2,
+                    "correct": true,
+                    "reaction_time_s": 1.5159,
+                    "patient_said_same": true,
+                    "was_same": true
+                },
+                {
+                    "question_num": 3,
+                    "correct": true,
+                    "reaction_time_s": 1.1571,
+                    "patient_said_same": false,
+                    "was_same": false
+                },
+                {
+                    "question_num": 4,
+                    "correct": true,
+                    "reaction_time_s": 1.606,
+                    "patient_said_same": true,
+                    "was_same": true
+                },
+                {
+                    "question_num": 5,
+                    "correct": true,
+                    "reaction_time_s": 1.8291,
+                    "patient_said_same": false,
+                    "was_same": false
+                }
+            ]
+        },
+        "spiral": {
+            "classification": 1,
+            "prediction_value": 2.1167985580810926,
+            "trace_file": "data/traces/fb3d3690-c2c1-4b57-83d1-c59104016bfe_spiral.csv",
+            "augmented_features": {
+                "x_pos": 0.026819,
+                "y_pos": -0.217042,
+                "time": 9.755658,
+                "magnitude": 0.684159,
+                "distance": 0.001563,
+                "turns": 0.985531,
+                "theta": 9.834353,
+                "angular_velocity": 4.110947,
+                "error": -1.105252
+            },
+            "n_points": 622
+        },
+        "memory": {
+            "score": 1,
+            "total_trials": 8,
+            "accuracy_percent": 12.5,
+            "incorrect_count": 7,
+            "avg_cell_distance": 1.5,
+            "trial_log": [
+                {
+                    "trial_num": 1,
+                    "icon_idx": 2,
+                    "correct_cell": [
+                        0,
+                        3
+                    ],
+                    "clicked_cell": [
+                        0,
+                        2
+                    ],
+                    "correct": false,
+                    "cell_distance": 1
+                },
+                {
+                    "trial_num": 2,
+                    "icon_idx": 3,
+                    "correct_cell": [
+                        0,
+                        1
+                    ],
+                    "clicked_cell": [
+                        0,
+                        2
+                    ],
+                    "correct": false,
+                    "cell_distance": 1
+                },
+                {
+                    "trial_num": 3,
+                    "icon_idx": 6,
+                    "correct_cell": [
+                        1,
+                        3
+                    ],
+                    "clicked_cell": [
+                        0,
+                        2
+                    ],
+                    "correct": false,
+                    "cell_distance": 2
+                },
+                {
+                    "trial_num": 4,
+                    "icon_idx": 7,
+                    "correct_cell": [
+                        1,
+                        1
+                    ],
+                    "clicked_cell": [
+                        0,
+                        2
+                    ],
+                    "correct": false,
+                    "cell_distance": 2
+                },
+                {
+                    "trial_num": 5,
+                    "icon_idx": 1,
+                    "correct_cell": [
+                        0,
+                        0
+                    ],
+                    "clicked_cell": [
+                        0,
+                        2
+                    ],
+                    "correct": false,
+                    "cell_distance": 2
+                },
+                {
+                    "trial_num": 6,
+                    "icon_idx": 5,
+                    "correct_cell": [
+                        1,
+                        0
+                    ],
+                    "clicked_cell": [
+                        0,
+                        2
+                    ],
+                    "correct": false,
+                    "cell_distance": 3
+                },
+                {
+                    "trial_num": 7,
+                    "icon_idx": 4,
+                    "correct_cell": [
+                        1,
+                        2
+                    ],
+                    "clicked_cell": [
+                        0,
+                        2
+                    ],
+                    "correct": false,
+                    "cell_distance": 1
+                },
+                {
+                    "trial_num": 8,
+                    "icon_idx": 0,
+                    "correct_cell": [
+                        0,
+                        2
+                    ],
+                    "clicked_cell": [
+                        0,
+                        2
+                    ],
+                    "correct": true,
+                    "cell_distance": 0
+                }
+            ]
+        },
+        "trail": {
+            "completion_time": 6.47,
+            "path_efficiency": 76.3,
+            "path_smoothness": 73.15,
+            "total_distance": 3958.22,
+            "optimal_distance": 3020.05,
+            "pause_count": 0,
+            "total_pause_time": 0,
+            "average_speed": 280.5,
+            "speed_variability": 713.25,
+            "errors": 0,
+            "test_type": "A",
+            "difficulty": "medium",
+            "circle_path": [
+                {
+                    "circle": 1,
+                    "timestamp_s": -0.0,
+                    "x": 519,
+                    "y": 428,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 2,
+                    "timestamp_s": 0.9025,
+                    "x": 709,
+                    "y": 492,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 3,
+                    "timestamp_s": 1.6515,
+                    "x": 900,
+                    "y": 412,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 4,
+                    "timestamp_s": 2.276,
+                    "x": 770,
+                    "y": 183,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 5,
+                    "timestamp_s": 2.8014,
+                    "x": 393,
+                    "y": 190,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 6,
+                    "timestamp_s": 3.8057,
+                    "x": 360,
+                    "y": 366,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 7,
+                    "timestamp_s": 4.4093,
+                    "x": 153,
+                    "y": 339,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 8,
+                    "timestamp_s": 5.0356,
+                    "x": 558,
+                    "y": 258,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 9,
+                    "timestamp_s": 5.5664,
+                    "x": 187,
+                    "y": 198,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 10,
+                    "timestamp_s": 6.4694,
+                    "x": 877,
+                    "y": 238,
+                    "input_method": "touchscreen"
+                }
+            ]
+        }
+    }
+}

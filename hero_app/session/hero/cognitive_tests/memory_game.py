@@ -105,7 +105,7 @@ class MemoryGame:
         icons = []
 
         if not os.path.exists(self.icons_folder):
-            print(f"⚠ Memory Game: Icons folder not found at '{self.icons_folder}'")
+
             return icons
 
         image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
@@ -121,9 +121,10 @@ class MemoryGame:
                 scaled = pg.transform.smoothscale(image, (ICON_SIZE, ICON_SIZE))
                 icons.append(scaled)
             except Exception as e:
-                print(f"⚠ Memory Game: Could not load {filename}: {e}")
+                pass
 
-        print(f"✓ Memory Game: Loaded {len(icons)} icons")
+
+
         return icons
 
     # ------------------------------------------------------------------
@@ -400,7 +401,7 @@ class MemoryGame:
             'avg_cell_distance': avg_distance,   # 0 = perfect, higher = further off
             'trial_log': self.trial_log,
         }
-        print(f"✓ Memory Game complete — {self.score}/{self.total_trials} ({accuracy}%)")
+
 
     # ------------------------------------------------------------------
     # Main loop

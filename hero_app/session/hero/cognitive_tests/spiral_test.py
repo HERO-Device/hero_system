@@ -187,7 +187,7 @@ class SpiralTest:
     def entry_sequence(self):
         self.update_display()
         if self.parent:
-            print("speaking")
+
             self.parent.speak_text("Please trace the spiral, starting from the center",
                                    display_screen=self.display_screen, touch_screen=self.touch_screen)
 
@@ -219,7 +219,7 @@ class SpiralTest:
         try:
             prediction = self.prediction_model.predict(spiral_features.values.reshape(1, -1))
         except ValueError:
-            print("Spiral prediction failed (NaN in features), defaulting to 0")
+
             prediction = [0]
 
         self.prediction = prediction[0]
@@ -243,9 +243,10 @@ class SpiralTest:
             trace_path = _os.path.join(trace_dir, fname)
             self.tracking_data.to_csv(trace_path, index=False)
             trace_file = trace_path
-            print(f"Spiral trace saved to {trace_path}")
+
         except Exception as e:
-            print(f"Could not save spiral trace: {e}")
+            pass
+
 
         # Mean of each augmented feature for DB storage
         augmented_features = None
@@ -311,7 +312,7 @@ class SpiralTest:
                 self.toggle_info_screen()
         else:
             ...
-            print("Power")
+
 
     def toggle_info_screen(self):
         if self.show_info:

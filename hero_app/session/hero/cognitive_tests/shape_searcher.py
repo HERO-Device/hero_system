@@ -168,7 +168,7 @@ class ShapeSearcher:
         self.display_screen.state = 0
         self.display_screen.refresh()
         self.display_screen.instruction = temp_instruction
-        print(self.display_screen.instruction)
+
         self.update_display()
 
     def update_display(self):
@@ -345,7 +345,7 @@ class ShapeSearcher:
         if self.turns == sum(self.question_counts):
             self.running = False
         elif self.turns == self.question_counts[0] and self.scores[0] < 0.8 * self.question_counts[0]:
-            print("Score too low to continue")
+
             self.running = False
         else:
             if self.turns == self.question_counts[0]:
@@ -388,7 +388,7 @@ class ShapeSearcher:
                 self.toggle_info_screen()
         else:
             ...
-            print("Power")
+
 
     def toggle_info_screen(self):
         if self.show_info:
