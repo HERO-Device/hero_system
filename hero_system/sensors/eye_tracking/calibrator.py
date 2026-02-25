@@ -37,7 +37,8 @@ def _get_pi_resolution() -> tuple:
         out = subprocess.check_output(["xrandr"]).decode()
         match = re.search(r"current (\d+) x (\d+)", out)
         if match:
-            return int(match.group(1)), int(match.group(2))
+            return 1024, 600
+            # return int(match.group(1)), int(match.group(2))
     except Exception:
         pass
     return 1024, 600

@@ -87,7 +87,7 @@ class ShapeSearcher:
         self.match = None
         self.turns = 0
         self.scores = [0, 0, 0]
-        self.question_counts = [5, 0, 0]
+        self.question_counts = [10, 0, 0]
         self.answer_times = []
         self.trial_log = []  # per-question: {question_num, correct, reaction_time_s, patient_said_same, was_same}
         self.start_time = None

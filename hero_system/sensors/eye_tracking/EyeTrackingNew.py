@@ -152,22 +152,22 @@ def run_validation(q, face_mesh, poly, model_x, model_y, screen_w, screen_h):
             break 
  
     # ── Write CSV ───────────────────────────────────────────────────────────── 
-    filename = f"gaze_validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv" 
-    with open(filename, "w", newline="") as f: 
-        writer = csv.writer(f) 
-        writer.writerow(["point", "target_x", "target_y", "pred_x", "pred_y", 
-                         "error_px", "error_deg"]) 
-        for i, (tgt, pred, epx, edeg) in enumerate( 
-                zip(targets_px, predictions_px, errors_px, errors_deg)): 
-            writer.writerow([i+1, round(tgt[0],1), round(tgt[1],1), 
-                             round(pred[0],1), round(pred[1],1), 
-                             round(epx,2), round(edeg,3)]) 
-        writer.writerow([]) 
-        writer.writerow(["mean_error_deg", round(mean_deg, 3)]) 
-        writer.writerow(["std_error_deg",  round(float(np.std(errors_deg)), 3)]) 
-        writer.writerow(["max_error_deg",  round(float(np.max(errors_deg)), 3)]) 
-        writer.writerow(["rating",         rating]) 
-    print(f"Validation results saved to {filename}") 
+    # filename = f"gaze_validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv" 
+    # with open(filename, "w", newline="") as f: 
+        # writer = csv.writer(f) 
+        # writer.writerow(["point", "target_x", "target_y", "pred_x", "pred_y", 
+                         # "error_px", "error_deg"]) 
+        # for i, (tgt, pred, epx, edeg) in enumerate( 
+                # zip(targets_px, predictions_px, errors_px, errors_deg)): 
+            # writer.writerow([i+1, round(tgt[0],1), round(tgt[1],1), 
+                             # round(pred[0],1), round(pred[1],1), 
+                             # round(epx,2), round(edeg,3)]) 
+        # writer.writerow([]) 
+        # writer.writerow(["mean_error_deg", round(mean_deg, 3)]) 
+        # writer.writerow(["std_error_deg",  round(float(np.std(errors_deg)), 3)]) 
+        # writer.writerow(["max_error_deg",  round(float(np.max(errors_deg)), 3)]) 
+        # writer.writerow(["rating",         rating]) 
+    # print(f"Validation results saved to {filename}") 
  
  
 def extract_features(landmarks, img_w, img_h): 
@@ -211,7 +211,7 @@ def get_display_resolution():
     try: 
         out = subprocess.check_output(["xrandr"]).decode() 
         match = re.search(r"current (\d+) x (\d+)", out) 
-        if match: 
+        if match == (1024,600): 
             return int(match.group(1)), int(match.group(2)) 
     except Exception: 
         pass 
@@ -237,7 +237,9 @@ def run():
     with dai.Device(pipeline) as device: 
         q = device.getOutputQueue(name="rgb", maxSize=4, blocking=False) 
  
-        screen_w, screen_h = get_display_resolution() 
+        screen_w, screen_h = get_display_resolution()
+        print(f"Using resolution from getdisplayresolution(): {screen_w} x {screen_h}")
+ 
  
         # Create window, show a black frame first, THEN set fullscreen 
         cv2.namedWindow("gaze", cv2.WINDOW_NORMAL) 
@@ -365,7 +367,6 @@ def run():
         face_mesh.close() 
         cv2.destroyAllWindows() 
  
- 
+
 if __name__ == "__main__": 
     run() 
- 

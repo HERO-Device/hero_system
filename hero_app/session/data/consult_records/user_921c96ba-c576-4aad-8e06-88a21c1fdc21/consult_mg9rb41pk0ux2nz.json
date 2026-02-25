@@ -1,0 +1,310 @@
+{
+    "consult_id": "mg9rb41pk0ux2nz",
+    "user_id": "921c96ba-c576-4aad-8e06-88a21c1fdc21",
+    "consult_time": "2026-02-25",
+    "consult_data": {
+        "shape": {
+            "total_questions": 10,
+            "correct": 10,
+            "incorrect": 0,
+            "accuracy_percent": 100.0,
+            "avg_reaction_time_s": 1.8954,
+            "trial_log": [
+                {
+                    "question_num": 1,
+                    "correct": true,
+                    "reaction_time_s": 3.8568,
+                    "patient_said_same": true,
+                    "was_same": true
+                },
+                {
+                    "question_num": 2,
+                    "correct": true,
+                    "reaction_time_s": 1.7799,
+                    "patient_said_same": true,
+                    "was_same": true
+                },
+                {
+                    "question_num": 3,
+                    "correct": true,
+                    "reaction_time_s": 1.1073,
+                    "patient_said_same": true,
+                    "was_same": true
+                },
+                {
+                    "question_num": 4,
+                    "correct": true,
+                    "reaction_time_s": 1.8036,
+                    "patient_said_same": true,
+                    "was_same": true
+                },
+                {
+                    "question_num": 5,
+                    "correct": true,
+                    "reaction_time_s": 0.9793,
+                    "patient_said_same": false,
+                    "was_same": false
+                },
+                {
+                    "question_num": 6,
+                    "correct": true,
+                    "reaction_time_s": 4.2304,
+                    "patient_said_same": false,
+                    "was_same": false
+                },
+                {
+                    "question_num": 7,
+                    "correct": true,
+                    "reaction_time_s": 1.5145,
+                    "patient_said_same": false,
+                    "was_same": false
+                },
+                {
+                    "question_num": 8,
+                    "correct": true,
+                    "reaction_time_s": 1.5878,
+                    "patient_said_same": false,
+                    "was_same": false
+                },
+                {
+                    "question_num": 9,
+                    "correct": true,
+                    "reaction_time_s": 0.9152,
+                    "patient_said_same": true,
+                    "was_same": true
+                },
+                {
+                    "question_num": 10,
+                    "correct": true,
+                    "reaction_time_s": 1.1792,
+                    "patient_said_same": false,
+                    "was_same": false
+                }
+            ]
+        },
+        "spiral": {
+            "classification": 0,
+            "prediction_value": -0.15153627547378257,
+            "trace_file": "data/traces/58a2cc71-2a32-4f89-a34f-707058b8aded_spiral.csv",
+            "augmented_features": {
+                "x_pos": 0.043365,
+                "y_pos": -0.056353,
+                "time": 10.27984,
+                "magnitude": 0.593286,
+                "distance": -7.4e-05,
+                "turns": 1.255605,
+                "theta": 11.3112,
+                "angular_velocity": 7.248176,
+                "error": 0.241008
+            },
+            "n_points": 223
+        },
+        "memory": {
+            "score": 7,
+            "total_trials": 8,
+            "accuracy_percent": 87.5,
+            "incorrect_count": 1,
+            "avg_cell_distance": 0.38,
+            "trial_log": [
+                {
+                    "trial_num": 1,
+                    "icon_idx": 5,
+                    "correct_cell": [
+                        1,
+                        1
+                    ],
+                    "clicked_cell": [
+                        1,
+                        1
+                    ],
+                    "correct": true,
+                    "cell_distance": 0
+                },
+                {
+                    "trial_num": 2,
+                    "icon_idx": 0,
+                    "correct_cell": [
+                        0,
+                        2
+                    ],
+                    "clicked_cell": [
+                        0,
+                        2
+                    ],
+                    "correct": true,
+                    "cell_distance": 0
+                },
+                {
+                    "trial_num": 3,
+                    "icon_idx": 3,
+                    "correct_cell": [
+                        0,
+                        3
+                    ],
+                    "clicked_cell": [
+                        0,
+                        3
+                    ],
+                    "correct": true,
+                    "cell_distance": 0
+                },
+                {
+                    "trial_num": 4,
+                    "icon_idx": 1,
+                    "correct_cell": [
+                        1,
+                        2
+                    ],
+                    "clicked_cell": [
+                        0,
+                        0
+                    ],
+                    "correct": false,
+                    "cell_distance": 3
+                },
+                {
+                    "trial_num": 5,
+                    "icon_idx": 6,
+                    "correct_cell": [
+                        1,
+                        3
+                    ],
+                    "clicked_cell": [
+                        1,
+                        3
+                    ],
+                    "correct": true,
+                    "cell_distance": 0
+                },
+                {
+                    "trial_num": 6,
+                    "icon_idx": 7,
+                    "correct_cell": [
+                        0,
+                        1
+                    ],
+                    "clicked_cell": [
+                        0,
+                        1
+                    ],
+                    "correct": true,
+                    "cell_distance": 0
+                },
+                {
+                    "trial_num": 7,
+                    "icon_idx": 2,
+                    "correct_cell": [
+                        1,
+                        0
+                    ],
+                    "clicked_cell": [
+                        1,
+                        0
+                    ],
+                    "correct": true,
+                    "cell_distance": 0
+                },
+                {
+                    "trial_num": 8,
+                    "icon_idx": 4,
+                    "correct_cell": [
+                        0,
+                        0
+                    ],
+                    "clicked_cell": [
+                        0,
+                        0
+                    ],
+                    "correct": true,
+                    "cell_distance": 0
+                }
+            ]
+        },
+        "trail": {
+            "completion_time": 4.79,
+            "path_efficiency": 86.61,
+            "path_smoothness": 61.98,
+            "total_distance": 4083.55,
+            "optimal_distance": 3536.62,
+            "pause_count": 0,
+            "total_pause_time": 0,
+            "average_speed": 375.99,
+            "speed_variability": 570.08,
+            "errors": 0,
+            "test_type": "A",
+            "difficulty": "medium",
+            "circle_path": [
+                {
+                    "circle": 1,
+                    "timestamp_s": -0.0,
+                    "x": 177,
+                    "y": 423,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 2,
+                    "timestamp_s": 0.54,
+                    "x": 861,
+                    "y": 397,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 3,
+                    "timestamp_s": 1.0272,
+                    "x": 481,
+                    "y": 383,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 4,
+                    "timestamp_s": 1.6504,
+                    "x": 332,
+                    "y": 197,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 5,
+                    "timestamp_s": 2.0332,
+                    "x": 179,
+                    "y": 179,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 6,
+                    "timestamp_s": 2.9586,
+                    "x": 603,
+                    "y": 328,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 7,
+                    "timestamp_s": 3.3937,
+                    "x": 910,
+                    "y": 257,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 8,
+                    "timestamp_s": 4.0208,
+                    "x": 388,
+                    "y": 485,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 9,
+                    "timestamp_s": 4.5156,
+                    "x": 728,
+                    "y": 484,
+                    "input_method": "touchscreen"
+                },
+                {
+                    "circle": 10,
+                    "timestamp_s": 4.7879,
+                    "x": 775,
+                    "y": 263,
+                    "input_method": "touchscreen"
+                }
+            ]
+        }
+    }
+}

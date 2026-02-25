@@ -76,7 +76,7 @@ def _start_exit_monitor():
 # ------------------------------------------------------------------
 
 PI_MODE       = True    # Set True on Raspberry Pi
-SCALE         = 1.0     # Scale factor for laptop testing
+SCALE         = 1    # Scale factor for laptop testing
 ENABLE_SPEECH = False   # Set True on Pi with audio configured
 
 
@@ -155,26 +155,26 @@ def main():
             from hero_app.calibration.calibration_screen import CalibrationScreen
 
             def after_calibration():
-                nonlocal pipeline
-                pipeline = start_sensors(session_id=session_id)
-                import time
-                ready_file = f"/tmp/hero_sensors_ready_{session_id}"
-                for _ in range(30):
-                    if os.path.exists(ready_file):
-                        os.remove(ready_file)
-                        logger.info("✓ Sensors ready")
-                        break
-                    time.sleep(0.5)
-                else:
-                    logger.warning("⚠ Sensors did not signal ready in time")
+               nonlocal pipeline
+               pipeline = start_sensors(session_id=session_id)
+               import time
+               ready_file = f"/tmp/hero_sensors_ready_{session_id}"
+               for _ in range(30):
+                   if os.path.exists(ready_file):
+                       os.remove(ready_file)
+                       logger.info("✓ Sensors ready")
+                       break
+                   time.sleep(0.5)
+               else:
+                   logger.warning("⚠ Sensors did not signal ready in time")
 
                 # Start gaze collection in background (camera already open from calibration)
-                if calib_screen.gaze_system:
-                    try:
-                        calib_screen.gaze_system.begin_collection()
-                        logger.info("✓ Gaze collection started")
-                    except Exception as e:
-                        logger.warning(f"Could not start gaze collection: {e}")
+               if calib_screen.gaze_system:
+                   try:
+                       calib_screen.gaze_system.begin_collection()
+                       logger.info("✓ Gaze collection started")
+                   except Exception as e:
+                       logger.warning(f"Could not start gaze collection: {e}")
 
             # Get the pygame window from the consultation — reuse it
             # We draw on the top half (display_size height)
@@ -184,26 +184,25 @@ def main():
             # Get db session for calibration
             _, calib_db_session = db.engine.connect(), None
             try:
-                from hero_core.database.models.connection import get_db_connection
-                _, calib_db_session = get_db_connection(
-                    host='localhost', port=5432, user='postgres',
-                    password='pgdbadmin', dbname='hero_db'
-                )
+               from hero_core.database.models.connection import get_db_connection
+               _, calib_db_session = get_db_connection(
+                   host='localhost', port=5432, user='postgres',
+                   password='pgdbadmin', dbname='hero_db'
+               )
             except Exception as e:
-                logger.warning(f"Could not open calibration DB session: {e}")
+               logger.warning(f"Could not open calibration DB session: {e}")
 
             calib_screen = CalibrationScreen(
-                session_id=session_id,
-                db_session=calib_db_session,
-                display_size=display_size,
-                window=window,
-                on_complete=after_calibration,
-                pi=PI_MODE,
+               session_id=session_id,
+               db_session=calib_db_session,
+               display_size=display_size,
+               window=window,
+               on_complete=after_calibration,
+               pi=PI_MODE,
             )
             calib_screen.run()
-
             if calib_db_session:
-                calib_db_session.close()
+               calib_db_session.close()
 
         coordinator = None  # Will be set via callback
 
