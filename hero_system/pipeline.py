@@ -112,7 +112,7 @@ class SensorPipeline:
         self._init_mpu6050()
         self._init_max30102()
         self._init_eeg()
-        # self._init_eye_tracking()  # disabled
+        self._init_eye_tracking()  # disabled
 
         logger.info(
             f"Pipeline ready — active: {self._active_sensors or 'none'} | "
