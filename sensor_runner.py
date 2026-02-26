@@ -7,6 +7,7 @@ import os
 import sys
 import signal
 import logging
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hero_app', 'session'))
@@ -26,9 +27,9 @@ def main():
         print("Usage: sensor_runner.py <session_id>")
         sys.exit(1)
 
-    session_id = sys.argv[1]
+    session_id = uuid.UUID(sys.argv[1])
     logger.info(f"Sensor runner starting for session {session_id}")
-    fh = logging.FileHandler(f'/tmp/hero_sensor_{session_id[:8]}.log')
+    fh = logging.FileHandler(f'/tmp/hero_sensor_{str(session_id)[:8]}.log')
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
     logging.getLogger().addHandler(fh)

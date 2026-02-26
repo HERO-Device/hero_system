@@ -22,6 +22,7 @@ WHITE  = (255, 255, 255)
 CYAN   = (0,   220, 220)
 YELLOW = (200, 200, 0)
 DIM    = (50,  50,  50)
+GREY   = (120, 120, 120)
 
 
 class GazeSystem:
@@ -55,6 +56,7 @@ class GazeSystem:
         self.device  = None
         self.queue   = None
         self.face_mesh = None
+        self._calib_record = None
 
         self._stop_event  = threading.Event()
         self._thread      = None
@@ -69,11 +71,49 @@ class GazeSystem:
     # ── Public ────────────────────────────────────────────────────────────
 
     def start(self):
-        """Open camera, calibrate, validate. Blocking."""
+        """Open camera, calibrate, validate. Repeats if POOR, max 3 attempts.
+        After 3 POOR attempts, keeps the best result and continues."""
         self._open_camera()
         self._open_face_mesh()
-        self._run_calibration()
-        self._run_validation()
+
+        MAX_ATTEMPTS = 3
+        best_mean    = float("inf")
+        best_attempt = 1
+
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            self._run_calibration()
+            rating = self._run_validation()
+
+            current_mean = self._calib_record.validation_mean_deg if self._calib_record else float("inf")
+            if current_mean < best_mean:
+                best_mean    = current_mean
+                best_attempt = attempt
+
+            if rating != "POOR":
+                logger.info(f"Calibration accepted on attempt {attempt} ({rating})")
+                break
+
+            if attempt < MAX_ATTEMPTS:
+                logger.warning(f"Validation POOR (attempt {attempt}/{MAX_ATTEMPTS}) — retrying")
+                font = pg.font.SysFont("couriernew", 22, bold=True)
+                self._draw(lambda s, f=font, a=attempt: (
+                    s.blit(f.render("Calibration POOR — retrying...", True, (220, 60, 60)),
+                           (self.w // 2 - 200, self.h // 2 - 20)),
+                    s.blit(f.render(f"Attempt {a} of {MAX_ATTEMPTS}", True, (180, 180, 180)),
+                           (self.w // 2 - 100, self.h // 2 + 20)),
+                ))
+                time.sleep(2.0)
+            else:
+                logger.warning(f"All {MAX_ATTEMPTS} attempts POOR — using best result (attempt {best_attempt}, {best_mean:.2f}deg)")
+                font = pg.font.SysFont("couriernew", 22, bold=True)
+                self._draw(lambda s, f=font, m=best_mean: (
+                    s.blit(f.render("Using best available calibration", True, (220, 140, 0)),
+                           (self.w // 2 - 210, self.h // 2 - 20)),
+                    s.blit(f.render(f"Mean error: {m:.2f} deg", True, (180, 180, 180)),
+                           (self.w // 2 - 110, self.h // 2 + 20)),
+                ))
+                time.sleep(2.0)
+
         logger.info("GazeSystem ready")
 
     def begin_collection(self):
@@ -252,28 +292,49 @@ class GazeSystem:
     def _save_calibration(self, feats, tgts):
         try:
             from hero_core.database.models.sensors import CalibrationEyeTracking
+            # Store the record now; validation columns will be updated after _run_validation
+            existing = self.db_session.query(CalibrationEyeTracking).filter(
+                CalibrationEyeTracking.session_id == self.session_id
+            ).first()
+            if existing:
+                self.db_session.delete(existing)
+
             rec = CalibrationEyeTracking(
-                session_id  = self.session_id,
-                timestamp   = datetime.now(timezone.utc),
-                coeff_x     = self.model_x.coef_.tolist(),
-                coeff_y     = self.model_y.coef_.tolist(),
-                intercept_x = float(self.model_x.intercept_),
-                intercept_y = float(self.model_y.intercept_),
-                poly_degree = self.config.poly_degree,
+                session_id     = self.session_id,
+                timestamp      = datetime.now(timezone.utc),
+                coeff_x        = self.model_x.coef_.tolist(),
+                coeff_y        = self.model_y.coef_.tolist(),
+                intercept_x    = float(self.model_x.intercept_),
+                intercept_y    = float(self.model_y.intercept_),
+                poly_degree    = self.config.poly_degree,
                 calib_features = [f.tolist() for f in feats],
                 calib_targets  = tgts,
             )
             self.db_session.add(rec)
             self.db_session.commit()
+            self._calib_record = rec  # keep reference so validation can update it
         except Exception as e:
             logger.warning(f"Could not save calibration: {e}")
+            self._calib_record = None
 
     # ── Validation ───────────────────────────────────────────────────────
 
     def _run_validation(self):
         import cv2
 
-        self._draw(lambda s: None)   # blank — no intro text
+        # ── Instruction screen ───────────────────────────────────────────
+        font_large = pg.font.SysFont("couriernew", 24, bold=True)
+        font_med   = pg.font.SysFont("couriernew", 18)
+
+        def _draw_instructions(s):
+            s.blit(font_large.render("Validation", True, CYAN),
+                   (self.w // 2 - 80, self.h // 2 - 60))
+            s.blit(font_med.render("Look at each white dot and press the button", True, WHITE),
+                   (self.w // 2 - 230, self.h // 2 - 20))
+            s.blit(font_med.render("Press button to begin", True, YELLOW),
+                   (self.w // 2 - 115, self.h // 2 + 20))
+
+        self._draw(_draw_instructions)
         self._wait_for_button()
 
         tgts, preds = [], []
@@ -301,33 +362,83 @@ class GazeSystem:
             tgts.append([tx, ty])
             preds.append(np.mean(raw, axis=0).tolist())
 
-        # Compute and save metrics silently
+        # Compute metrics
         tgts  = np.array(tgts,  dtype=np.float32)
         preds = np.array(preds, dtype=np.float32)
         err   = np.linalg.norm(preds - tgts, axis=1)
         mm_px = self.config.screen_width_mm / self.w
         deg   = np.degrees(np.arctan((err * mm_px) / self.config.screen_distance_mm))
         mean  = float(np.mean(deg))
-        rating = "GOOD" if mean < 1.0 else "ACCEPTABLE" if mean < 2.0 else "POOR"
-        logger.info(f"Validation: {mean:.2f}deg mean ({rating})")
+        std   = float(np.std(deg))
+        rating = "GOOD" if std < 1.0 else "ACCEPTABLE" if std < 2.0 else "POOR"
+        logger.info(f"Validation: {std:.2f}deg std ({rating})")
 
-        self._save_validation(mean, float(np.std(deg)), rating)
+        self._save_validation(mean, std, rating)
+        self._draw_validation_results(tgts, preds, deg, mean, std, rating)
+        self._wait_for_button()
 
-        # Brief black pause, no results shown
-        self._draw(lambda s: None)
-        time.sleep(1.0)
+        return rating
+
+    def _draw_validation_results(self, tgts, preds, deg, mean, std, rating):
+        """Show a full-screen scatter plot of target vs predicted gaze points."""
+        GOOD_COL       = (0,   210, 80)
+        ACCEPTABLE_COL = (220, 180, 0)
+        POOR_COL       = (220, 60,  60)
+        rating_col = GOOD_COL if rating == "GOOD" else ACCEPTABLE_COL if rating == "ACCEPTABLE" else POOR_COL
+
+        font_large = pg.font.SysFont("couriernew", 24, bold=True)
+        font_med   = pg.font.SysFont("couriernew", 17)
+        font_small = pg.font.SysFont("couriernew", 14)
+
+        def draw(s):
+            # ── Per-point: error line + target + predicted dot ───────────
+            for i, (tgt, pred) in enumerate(zip(tgts, preds)):
+                tx, ty = int(tgt[0]),  int(tgt[1])
+                px, py = int(pred[0]), int(pred[1])
+                point_deg = float(deg[i])
+
+                # Colour each point by its individual error
+                col = GOOD_COL if point_deg < 1.0 else ACCEPTABLE_COL if point_deg < 2.0 else POOR_COL
+
+                # Line from target to prediction
+                pg.draw.line(s, col, (tx, ty), (px, py), 1)
+                # Target: white hollow circle
+                pg.draw.circle(s, WHITE, (tx, ty), 8, 2)
+                # Predicted: filled coloured dot
+                pg.draw.circle(s, col, (px, py), 5)
+                # Per-point error label
+                lbl = font_small.render(f"{point_deg:.1f}d", True, col)
+                s.blit(lbl, (px + 7, py - 7))
+
+            # ── Legend ───────────────────────────────────────────────────
+            s.blit(font_small.render("O  target",    True, WHITE),  (8, self.h - 52))
+            s.blit(font_small.render("●  predicted", True, CYAN),   (8, self.h - 36))
+            s.blit(font_small.render("—  error",     True, GREY),   (8, self.h - 20))
+
+            # ── Stats panel (top-left) ────────────────────────────────────
+            s.blit(font_large.render(f"Validation: {rating}", True, rating_col), (10, 10))
+            s.blit(font_med.render(f"Mean error : {mean:.2f} deg", True, WHITE),  (10, 44))
+            s.blit(font_med.render(f"Std dev    : {std:.2f} deg",  True, WHITE),  (10, 66))
+            s.blit(font_med.render(f"Points     : {len(tgts)}",    True, WHITE),  (10, 88))
+
+            # ── Thresholds reminder ───────────────────────────────────────
+            s.blit(font_small.render("GOOD < 1.0d   ACCEPTABLE < 2.0d   POOR >= 2.0d",
+                                     True, GREY), (10, 114))
+
+            # ── Press to continue ─────────────────────────────────────────
+            cont = font_med.render("Press button to continue", True, YELLOW)
+            s.blit(cont, (self.w // 2 - cont.get_width() // 2, self.h - 72))
+
+        self._draw(draw)
 
     def _save_validation(self, mean_deg, std_deg, rating):
         try:
-            from hero_core.database.models.base import SensorCalibration
-            rec = SensorCalibration(
-                session_id    = self.session_id,
-                sensor_type   = 'eye_tracking_validation',
-                sensor_status = 'ok' if rating != 'POOR' else 'warning',
-                notes         = f"mean={mean_deg:.2f}deg std={std_deg:.2f}deg rating={rating}",
-            )
-            self.db_session.add(rec)
-            self.db_session.commit()
+            if self._calib_record is not None:
+                self._calib_record.validation_mean_deg = mean_deg
+                self._calib_record.validation_std_deg  = std_deg
+                self._calib_record.validation_rating   = rating
+                self.db_session.commit()
+                logger.info(f"Validation saved to calibration record: {mean_deg:.2f}deg ({rating})")
         except Exception as e:
             logger.warning(f"Could not save validation: {e}")
 
@@ -379,4 +490,3 @@ class GazeSystem:
                 self.db_session.commit()
             except Exception:
                 pass
-                
