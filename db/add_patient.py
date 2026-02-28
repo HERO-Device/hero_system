@@ -20,7 +20,15 @@ logging.basicConfig(level=logging.WARNING)  # Suppress SQLAlchemy noise
 
 
 def prompt(label: str, required: bool = True, secret: bool = False) -> str:
-    """Prompt the user for input."""
+    """
+    Prompt the clinician for input, re-asking if a required field is left blank.
+    Args:
+        label:    Display label shown in the terminal prompt.
+        required: If True, re-prompts until a non-empty value is entered.
+        secret:   If True, uses getpass to hide input (for passwords).
+    Returns:
+        Stripped input string, or None if not required and left blank.
+    """
     while True:
         if secret:
             import getpass
@@ -37,7 +45,14 @@ def prompt(label: str, required: bool = True, secret: bool = False) -> str:
 
 
 def parse_date(date_str: str):
-    """Parse date of birth from DD/MM/YYYY or YYYY-MM-DD."""
+    """
+    Parse a date of birth string into a datetime object.
+    Accepts DD/MM/YYYY or YYYY-MM-DD formats.
+    Args:
+        date_str: Raw date string from user input.
+    Returns:
+        datetime object if parsing succeeds, None otherwise.
+    """
     if not date_str:
         return None
     for fmt in ('%d/%m/%Y', '%Y-%m-%d'):
@@ -50,6 +65,16 @@ def parse_date(date_str: str):
 
 
 def main():
+    """
+    CLI entry point for registering a new patient.
+
+    Prompts the clinician for patient details, checks the username
+    is not already taken, confirms the summary, then writes the
+    new User to the database.
+
+    Returns:
+        None.
+    """
     print()
     print("=" * 50)
     print("  HERO System — Add Patient")
@@ -119,4 +144,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    

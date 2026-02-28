@@ -128,7 +128,12 @@ class SensorPipeline:
         logger.info("✓ Sensor pipeline stopped")
 
     def _new_session(self):
-        """Create a fresh independent DB session for a sensor."""
+        """
+        Create a fresh independent SQLAlchemy session for a sensor.
+        Each sensor gets its own session to avoid cross-thread conflicts.
+        Returns:
+            A new SQLAlchemy Session instance connected to hero_db.
+        """
         _, session = get_db_connection(
             host='localhost', port=5432, user='postgres',
             password='pgdbadmin', dbname='hero_db'
@@ -137,7 +142,10 @@ class SensorPipeline:
 
     def get_status(self) -> dict:
         """
-        Return a summary of sensor states for logging / UI display.
+        Return a summary of sensor pipeline state.
+        Returns:
+            Dict containing session_id, active_sensors, failed_sensors,
+            and the full coordinator status dict.
         """
         return {
             'session_id'     : str(self.session_id),
@@ -151,7 +159,16 @@ class SensorPipeline:
     # -----------------------------------------------------------------------
 
     def _init_mpu6050(self):
-        """Initialise MPU6050 accelerometer/gyroscope."""
+        """
+        Initialise the MPU6050 accelerometer and gyroscope.
+
+        Registers and starts the collector with the coordinator.
+        Logs init outcome to sensor_calibration. On failure, calls
+        _handle_sensor_failure and continues.
+
+        Returns:
+            None.
+        """
         sensor_name = SENSOR_MPU6050
         try:
             from hero_system.sensors.mpu6050.collector import MPU6050Collector
@@ -189,7 +206,17 @@ class SensorPipeline:
             self._handle_sensor_failure(sensor_name, e)
 
     def _init_max30102(self):
-        """Initialise MAX30102 heart rate / SpO2 sensor."""
+        """
+        Initialise the MAX30102 heart rate and pulse oximeter sensor.
+
+        Registers and starts the collector with the coordinator.
+        Sampling rate is derived from the configured collection interval.
+        Logs init outcome to sensor_calibration. On failure, calls
+        _handle_sensor_failure and continues.
+
+        Returns:
+            None.
+        """
         sensor_name = SENSOR_MAX30102
         try:
             from hero_system.sensors.max30102.collector import MAX30102Collector
@@ -229,7 +256,18 @@ class SensorPipeline:
             self._handle_sensor_failure(sensor_name, e)
 
     def _init_eeg(self):
-        """Initialise OpenBCI Ganglion EEG via BrainFlow."""
+        """
+        Initialise the OpenBCI Ganglion EEG via BrainFlow.
+
+        Auto-detects the BLED112 dongle serial port from /dev/ttyACM*.
+        Registers and starts the collector with the coordinator.
+        Ganglion runs at a fixed 200 Hz. Logs init outcome to
+        sensor_calibration. On failure, calls _handle_sensor_failure
+        and continues.
+
+        Returns:
+            None.
+        """
         sensor_name = SENSOR_EEG
         try:
             from hero_system.sensors.eeg.collector import EEGCollector
@@ -271,7 +309,19 @@ class SensorPipeline:
             self._handle_sensor_failure(sensor_name, e)
 
     def _init_eye_tracking(self):
-        """Initialise ArduCam Pinsight AI + MediaPipe eye tracking."""
+        """
+        Initialise the ArduCam Pinsight AI eye tracking via MediaPipe.
+
+        Loads the polynomial regression calibration saved during the
+        pre-session calibration stage. If no calibration is found for
+        this session, skips eye tracking entirely. Registers and starts
+        the processor with the coordinator. Logs init outcome to
+        sensor_calibration. On failure, calls _handle_sensor_failure
+        and continues.
+
+        Returns:
+            None.
+        """
         sensor_name = SENSOR_EYE_TRACKING
         try:
             from hero_system.sensors.eye_tracking.processor import EyeTrackingProcessor
@@ -327,8 +377,18 @@ class SensorPipeline:
 
     def _handle_sensor_failure(self, sensor_name: str, exc: Exception):
         """
-        Log a failed sensor to the DB and mark it as skipped.
-        The session continues — we just won't have data for this sensor.
+        Handle a sensor initialisation failure gracefully.
+
+        Appends the sensor to _failed_sensors, logs a warning,
+        and writes a 'failed' record to sensor_calibration.
+        The session continues without this sensor.
+
+        Args:
+            sensor_name: Identifier string for the failed sensor.
+            exc:         The exception that caused the failure.
+
+        Returns:
+            None.
         """
         self._failed_sensors.append(sensor_name)
 
@@ -354,8 +414,20 @@ class SensorPipeline:
         notes: str = None,
     ):
         """
-        Write a row to sensor_calibration so every session has a
-        full record of which sensors were active and what their config was.
+        Write a sensor initialisation record to sensor_calibration.
+
+        Called for both successful and failed sensor initialisations
+        so every session has a complete audit trail.
+
+        Args:
+            sensor_type:      Sensor identifier string.
+            status:           One of 'active', 'failed', 'disconnected', 'recovered'.
+            sampling_rate_hz: Achieved sampling rate. None if sensor failed.
+            params:           Dict of sensor-specific config to store as JSONB.
+            notes:            Optional free-text, typically the exception message on failure.
+
+        Returns:
+            None.
         """
         try:
             from hero_core.database.models.calibration import SensorCalibration
@@ -386,16 +458,18 @@ class SensorPipeline:
     # -----------------------------------------------------------------------
 
     def __enter__(self):
+        """Start pipeline on context manager entry. Returns self."""
         self.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Stop pipeline on context manager exit."""
         self.stop()
 
     def __repr__(self):
+        """String representation showing active and failed sensors."""
         return (
             f"<SensorPipeline("
             f"active={self._active_sensors}, "
             f"failed={self._failed_sensors})>"
         )
-        

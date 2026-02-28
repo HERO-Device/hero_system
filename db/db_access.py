@@ -33,10 +33,21 @@ DB_CONFIG = {
 
 class HeroDB:
     """
-    Main database access class for the HERO system.
-    Handles all DB operations for the session app.
-    """
+    Database access layer for the HERO system.
 
+    Wraps hero_core ORM models to provide a simple interface for
+    the session app. Handles user authentication, session lifecycle,
+    game result storage, and event logging. All operations use a
+    single SQLAlchemy session created at init.
+
+    Usage:
+        db = HeroDB()
+        user = db.verify_login(username, password)
+        session_id = db.start_session(user.user_id)
+        ...
+        db.end_session(session_id)
+        db.close()
+    """
     def __init__(self, config: dict = None):
         cfg = config or DB_CONFIG
         try:
@@ -51,7 +62,13 @@ class HeroDB:
     # ------------------------------------------------------------------
 
     def get_user(self, username: str) -> Optional[User]:
-        """Fetch a user by username."""
+        """
+        Fetch a user by username.
+        Args:
+            username: The patient's login handle.
+        Returns:
+            User object if found, None otherwise.
+        """
         try:
             return self.session.query(User).filter_by(username=username).first()
         except SQLAlchemyError as e:
@@ -60,9 +77,12 @@ class HeroDB:
 
     def verify_login(self, username: str, password: str) -> Optional[User]:
         """
-        Verify login credentials.
-        Returns the User object if valid, None otherwise.
-        NOTE: passwords stored as plaintext for now — hash in production.
+        Verify login credentials against the database.
+        Args:
+            username: The patient's login handle.
+            password: Plaintext password — to be hashed in a future security pass.
+        Returns:
+            User object if credentials are valid, None otherwise.
         """
         user = self.get_user(username)
         if user and user.password == password:
@@ -73,7 +93,17 @@ class HeroDB:
                     full_name: str = None,
                     email: str = None,
                     date_of_birth: datetime = None) -> Optional[User]:
-        """Create a new patient user."""
+        """
+        Create and persist a new patient account.
+        Args:
+            username:      Unique login handle.
+            password:      Plaintext password.
+            full_name:     Patient's display name.
+            email:         Optional contact email.
+            date_of_birth: Optional date of birth for demographic analysis.
+        Returns:
+            Newly created User object, or None if creation failed.
+        """
         try:
             user = User(
                 user_id=uuid.uuid4(),
@@ -98,8 +128,12 @@ class HeroDB:
 
     def start_session(self, user_id: uuid.UUID, notes: str = None) -> Optional[uuid.UUID]:
         """
-        Create a new test session in the DB.
-        Returns the session_id UUID.
+        Create a new test session in the database.
+        Args:
+            user_id: UUID of the authenticated patient.
+            notes:   Optional free-text (e.g. consultation reference).
+        Returns:
+            session_id UUID if successful, None otherwise.
         """
         try:
             session_id = uuid.uuid4()
@@ -119,7 +153,13 @@ class HeroDB:
             return None
 
     def end_session(self, session_id: uuid.UUID):
-        """Mark a session as ended."""
+        """
+        Mark a session as complete by writing ended_at.
+        Args:
+            session_id: UUID of the session to close.
+        Returns:
+            None.
+        """
         try:
             test_session = self.session.query(TestSession).filter_by(
                 session_id=session_id
@@ -151,8 +191,23 @@ class HeroDB:
                          game_data: dict = None,
                          completion_status: str = 'completed') -> Optional[uuid.UUID]:
         """
-        Save a game result to the DB.
-        Returns the result_id UUID.
+        Persist the result of a completed cognitive test.
+        Args:
+            session_id:               UUID of the current session.
+            game_name:                Game identifier e.g. 'Spiral', 'Trail', 'Shapes', 'Memory'.
+            game_number:              Ordinal position of the game in the session.
+            started_at:               UTC timestamp when the game loop began.
+            completed_at:             UTC timestamp when the game loop ended.
+            final_score:              Raw score achieved.
+            max_score:                Maximum possible score.
+            accuracy_percent:         Score as a percentage of max_score.
+            correct_answers:          Count of correct responses.
+            incorrect_answers:        Count of incorrect responses.
+            average_reaction_time_ms: Mean response time across all trials in ms.
+            game_data:                Dict of full game-specific results for JSONB storage.
+            completion_status:        Outcome string, defaults to 'completed'.
+        Returns:
+            result_id UUID if successful, None otherwise.
         """
         try:
             duration = (completed_at - started_at).total_seconds()
@@ -197,7 +252,20 @@ class HeroDB:
                   screen_x: float = None,
                   screen_y: float = None,
                   event_data: dict = None):
-        """Log a single event to the DB."""
+        """
+        Log a discrete system or game event.
+        Args:
+            session_id:     UUID of the current session.
+            event_type:     Event identifier e.g. 'game_start', 'game_end'.
+            event_category: Broad grouping e.g. 'game', 'system'.
+            game_name:      Game this event relates to. None for system events.
+            game_number:    Ordinal position of the game. None for system events.
+            screen_x:       Optional X coordinate of a screen interaction in pixels.
+            screen_y:       Optional Y coordinate of a screen interaction in pixels.
+            event_data:     Optional dict of additional event metadata.
+        Returns:
+            None.
+        """
         try:
             event = Event(
                 event_id=uuid.uuid4(),
@@ -222,7 +290,11 @@ class HeroDB:
     # ------------------------------------------------------------------
 
     def close(self):
-        """Close the DB session."""
+        """
+        Close the SQLAlchemy session.
+        Returns:
+            None.
+        """
         try:
             self.session.close()
             logger.info("✓ DB session closed")
@@ -230,8 +302,21 @@ class HeroDB:
             logger.error(f"Error closing DB session: {e}")
 
     def __enter__(self):
+        """
+        Allow use as a context manager.
+        Returns:
+            Self.
+        """
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Close DB session on context manager exit.
+        Args:
+            exc_type: Exception type if raised, None otherwise.
+            exc_val:  Exception value if raised, None otherwise.
+            exc_tb:   Traceback if raised, None otherwise.
+        Returns:
+            None.
+        """
         self.close()
-        
