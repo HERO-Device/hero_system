@@ -40,7 +40,16 @@ class MAX30102Collector:
         config: Optional[MAX30102Config] = None
     ):
         """
-        Initialize MAX30102 collector
+        Initialise the MAX30102 collector.
+
+        Args:
+            session_id:  UUID of the current session.
+            db_session:  SQLAlchemy session for writing sensor data.
+            coordinator: SensorCoordinator providing the shared central clock.
+            config:      MAX30102Config instance. Defaults to MAX30102Config.for_session().
+
+        Returns:
+            None.
         """
         self.session_id = session_id
         self.db_session = db_session
@@ -54,8 +63,7 @@ class MAX30102Collector:
         self.is_running = False
         self.collection_thread = None
         self.stop_event = threading.Event()
-        
-        # Data buffers - ADD THESE LINES IF MISSING
+
         self.ir_buffer = []
         self.red_buffer = []
         self.hr_smoothing_buffer = []
@@ -88,7 +96,15 @@ class MAX30102Collector:
         )
         
     def start(self):
-        """Start MAX30102 data collection"""
+        """
+        Initialise the MAX30102 sensor and start the collection thread.
+
+        Raises:
+            Exception if the sensor cannot be initialised.
+
+        Returns:
+            None.
+        """
         if self.is_running:
             logger.warning("MAX30102 collector already running")
             return
@@ -120,7 +136,12 @@ class MAX30102Collector:
             raise
 
     def stop(self):
-        """Stop MAX30102 data collection"""
+        """
+        Signal the collection thread to stop and flush remaining samples.
+
+        Returns:
+            None.
+        """
         if not self.is_running:
             logger.warning("MAX30102 collector not running")
             return
@@ -150,7 +171,15 @@ class MAX30102Collector:
             raise
 
     def _collection_loop(self):
-        """Main data collection loop - runs in separate thread"""
+        """
+        Main data collection loop — runs in a background thread.
+
+        Reads raw IR and Red signals from the sensor FIFO at the configured
+        polling rate and stores each sample to the database.
+
+        Returns:
+            None.
+        """
         logger.info("MAX30102 collection loop started")
         
         while not self.stop_event.is_set():
@@ -268,7 +297,13 @@ class MAX30102Collector:
             return 1  # Fair
 
     def get_status(self) -> dict:
-        """Get current collector status"""
+        """
+        Return the current collector state.
+
+        Returns:
+            Dict containing sensor type, mode, running state,
+            session ID, and total sample count.
+        """
         return {
             'sensor_type': 'MAX30102',
             'mode': self.config.mode,
@@ -278,6 +313,6 @@ class MAX30102Collector:
         }
 
     def __repr__(self):
+        """String representation showing running state."""
         status = "running" if self.is_running else "stopped"
         return f"<MAX30102Collector(status={status})>"
-        

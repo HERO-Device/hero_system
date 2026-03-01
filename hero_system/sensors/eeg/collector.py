@@ -42,6 +42,18 @@ class EEGCollector:
         coordinator: 'SensorCoordinator',
         config: Optional[EEGConfig] = None
     ):
+        """
+        Initialise the EEG collector.
+
+        Args:
+            session_id:  UUID of the current session.
+            db_session:  SQLAlchemy session for writing sensor data.
+            coordinator: SensorCoordinator providing the shared central clock.
+            config:      EEGConfig instance. Defaults to EEGConfig.for_session().
+
+        Returns:
+            None.
+        """
         self.session_id = session_id
         self.db_session = db_session
         self.coordinator = coordinator
@@ -82,7 +94,18 @@ class EEGCollector:
         )
 
     def start(self):
-        """Start EEG data collection"""
+        """
+        Initialise the BrainFlow board, start the data stream, and launch collection threads.
+
+        Starts a processing thread in addition to the collection thread
+        if realtime_processing is enabled (calibration mode).
+
+        Raises:
+            Exception if the board cannot be prepared or the stream fails to start.
+
+        Returns:
+            None.
+        """
         if self.is_running:
             logger.warning("EEG collector already running")
             return
@@ -139,7 +162,12 @@ class EEGCollector:
             raise
 
     def stop(self):
-        """Stop EEG data collection"""
+        """
+        Signal collection threads to stop, release the BrainFlow session, and flush remaining samples.
+
+        Returns:
+            None.
+        """
         if not self.is_running:
             logger.warning("EEG collector not running")
             return
@@ -177,7 +205,15 @@ class EEGCollector:
             raise
 
     def _collection_loop(self):
-        """Main data collection loop - polls brainflow and stores only new samples"""
+        """
+        Main data collection loop — runs in a background thread.
+
+        Polls the BrainFlow buffer every 100ms, retrieves only new samples
+        since the last poll, and stores them to the database with per-sample timestamps.
+
+        Returns:
+            None.
+        """
         logger.info("EEG collection loop started")
         poll_interval = 0.1  # Poll every 100ms = ~20 new samples at 200Hz
         last_count = 0
@@ -269,7 +305,15 @@ class EEGCollector:
             self.db_session.rollback()
 
     def _processing_loop(self):
-        """Real-time processing loop - only runs in calibration mode"""
+        """
+        Real-time band power processing loop — runs in a background thread.
+
+        Only active in calibration mode. Accumulates sample chunks and triggers
+        band power computation once enough samples have been collected.
+
+        Returns:
+            None.
+        """
         logger.info("EEG processing loop started (calibration mode)")
         accumulated_samples = []
 
@@ -293,7 +337,17 @@ class EEGCollector:
         logger.info("EEG processing loop stopped")
 
     def _process_and_store_metrics(self, data: np.ndarray):
-        """Process EEG data and store metrics (calibration mode only)"""
+        """
+        Compute band powers from a data chunk and persist to MetricsProcessed.
+
+        Called by the real-time processing loop during calibration mode.
+
+        Args:
+            data: Board data array (channels x samples).
+
+        Returns:
+            None.
+        """
         try:
             timestamp = self.coordinator.get_central_timestamp()
             metrics, band_powers = self.processor.compute_and_create_metrics(
@@ -316,7 +370,13 @@ class EEGCollector:
             self.db_session.rollback()
 
     def get_status(self) -> dict:
-        """Get current collector status"""
+        """
+        Return the current collector state.
+
+        Returns:
+            Dict containing sensor type, mode, running state, realtime flag,
+            session ID, board ID, sampling rate, channel count, and sample count.
+        """
         return {
             'sensor_type': 'EEG',
             'mode': self.config.mode,
@@ -330,6 +390,6 @@ class EEGCollector:
         }
 
     def __repr__(self):
+        """String representation showing mode and running state."""
         status = "running" if self.is_running else "stopped"
         return f"<EEGCollector(mode={self.config.mode}, status={status})>"
-        

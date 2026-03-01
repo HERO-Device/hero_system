@@ -8,7 +8,12 @@ from dataclasses import dataclass
 
 @dataclass
 class MAX30102Config:
-    """MAX30102 sensor configuration parameters"""
+    """
+    Configuration parameters for the MAX30102 heart rate and pulse oximeter sensor.
+
+    Controls I2C hardware settings, sampling rate, signal quality thresholds,
+    and processing mode for both calibration and session operation.
+    """
 
     # Operating mode
     mode: str = 'session'  # 'calibration' or 'session'
@@ -35,7 +40,14 @@ class MAX30102Config:
 
     @classmethod
     def for_calibration(cls) -> 'MAX30102Config':
-        """Configuration for calibration phase - real-time processing enabled"""
+        """
+        Create a configuration for the calibration phase.
+
+        Enables real-time HR/SpO2 processing for live signal verification.
+
+        Returns:
+            MAX30102Config with mode='calibration' and realtime_processing=True.
+        """
         config = cls(
             mode='calibration',
             realtime_processing=True,
@@ -44,7 +56,15 @@ class MAX30102Config:
 
     @classmethod
     def for_session(cls) -> 'MAX30102Config':
-        """Configuration for active session - raw collection only"""
+        """
+        Create a configuration for an active session.
+
+        Disables real-time processing — raw IR and Red signals are collected
+        and processed post-session.
+
+        Returns:
+            MAX30102Config with mode='session' and realtime_processing=False.
+        """
         config = cls(
             mode='session',
             realtime_processing=False,

@@ -1,7 +1,6 @@
 """
 MPU6050 Signal Processor
 Tremor detection using bandpass filtering and Power Spectral Density analysis
-Based on teammate's tremor detection implementation
 """
 
 import logging
@@ -29,10 +28,13 @@ class MPU6050Processor:
 
     def __init__(self, config: Optional[MPU6050Config] = None):
         """
-        Initialize MPU6050 processor
+        Initialise the MPU6050 processor with the given configuration.
 
         Args:
-            config: MPU6050 configuration
+            config: MPU6050Config instance. Defaults to MPU6050Config() if not provided.
+
+        Returns:
+            None.
         """
         self.config = config if config else MPU6050Config()
 
@@ -139,7 +141,6 @@ class MPU6050Processor:
     ) -> Dict:
         """
         Analyze tremor using bandpass filtering and PSD analysis
-        Exact implementation from teammate's tremor detection code
 
         Args:
             accel_data: Dictionary with x, y, z, time arrays

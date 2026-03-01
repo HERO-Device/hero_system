@@ -77,7 +77,15 @@ class MPU6050Collector:
         logger.info(f"MPU6050 Collector initialized for session {session_id}")
 
     def start(self):
-        """Start MPU6050 data collection"""
+        """
+        Initialise the I2C bus, configure the MPU6050, and start the collection thread.
+
+        Raises:
+            Exception if the I2C bus cannot be opened or the sensor fails to configure.
+
+        Returns:
+            None.
+        """
         if self.is_running:
             logger.warning("MPU6050 collector already running")
             return
@@ -123,7 +131,12 @@ class MPU6050Collector:
             raise
 
     def stop(self):
-        """Stop MPU6050 data collection"""
+        """
+        Signal the collection thread to stop, close the I2C bus, and flush remaining samples.
+
+        Returns:
+            None.
+        """
         if not self.is_running:
             logger.warning("MPU6050 collector not running")
             return
@@ -157,7 +170,15 @@ class MPU6050Collector:
             raise
 
     def _collection_loop(self):
-        """Main data collection loop - runs in separate thread"""
+        """
+        Main data collection loop — runs in a background thread.
+
+        Reads raw accelerometer and gyroscope registers at the configured
+        sample rate, converts to physical units, and stores to the database.
+
+        Returns:
+            None.
+        """
         logger.info("MPU6050 collection loop started")
 
         while not self.stop_event.is_set():
@@ -183,7 +204,6 @@ class MPU6050Collector:
                 gyro_y = gyro_y_raw / self.config.gyro_sensitivity
                 gyro_z = gyro_z_raw / self.config.gyro_sensitivity
 
-                # Store to database
                 self._store_accel_sample(accel_x, accel_y, accel_z)
                 self._store_gyro_sample(gyro_x, gyro_y, gyro_z)
 
@@ -348,7 +368,13 @@ class MPU6050Collector:
             return 0.4  # Poor (excessive rotation)
 
     def get_status(self) -> dict:
-        """Get current collector status"""
+        """
+        Return the current collector state.
+
+        Returns:
+            Dict containing sensor type, mode, running state, session ID,
+            and sample counts for accelerometer and gyroscope.
+        """
         return {
             'sensor_type': 'MPU6050',
             'mode': self.config.mode,
@@ -359,6 +385,7 @@ class MPU6050Collector:
         }
 
     def __repr__(self):
+        """String representation showing running state."""
         status = "running" if self.is_running else "stopped"
         return f"<MPU6050Collector(status={status})>"
     

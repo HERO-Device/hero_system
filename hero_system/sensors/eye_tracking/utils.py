@@ -9,11 +9,31 @@ from .config import EyeTrackingConfig
 
 
 def correct_frame(frame: np.ndarray, flip_code: int) -> np.ndarray:
+    """
+    Flip a camera frame to correct for physical mounting orientation.
+
+    Args:
+        frame:     BGR numpy array from the DepthAI queue.
+        flip_code: cv2.flip code — 0=vertical, 1=horizontal, -1=both.
+
+    Returns:
+        Flipped BGR numpy array.
+    """
     return cv2.flip(frame, flip_code)
 
-
 def extract_features(landmarks, img_w: int, img_h: int, config: EyeTrackingConfig) -> np.ndarray:
-    """4-element feature vector: normalised iris position within eye corners."""
+    """
+    Compute a 4-element normalised iris feature vector from FaceMesh landmarks.
+
+    Args:
+        landmarks: MediaPipe face landmark list.
+        img_w:     Frame width in pixels.
+        img_h:     Frame height in pixels.
+        config:    EyeTrackingConfig providing iris and eye corner landmark indices.
+
+    Returns:
+        Numpy array [left_x, left_y, right_x, right_y] of normalised iris positions.
+    """
     def norm_iris(iris_idx, inner_idx, outer_idx):
         iris  = landmarks[iris_idx]
         inner = landmarks[inner_idx]
@@ -29,8 +49,8 @@ def extract_features(landmarks, img_w: int, img_h: int, config: EyeTrackingConfi
     rx, ry = norm_iris(config.right_iris_idx, config.right_eye_inner, config.right_eye_outer)
     return np.array([lx, ly, rx, ry], dtype=np.float32)
 
-
-# Legacy stubs — kept so any remaining imports don't break
+# Legacy stubs — retained so any stale imports do not raise AttributeError.
+# These functions are not used in the current implementation.
 def rot_x(a): pass
 def rot_y(a): pass
 def normalize(v): return v

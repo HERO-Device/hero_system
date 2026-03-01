@@ -3,35 +3,26 @@ Eye Tracking Sensor Module for HERO System
 Real-time gaze tracking using ArduCam Pinsight AI and MediaPipe FaceMesh
 
 Architecture:
-- processor.py: Camera initialization, gaze computation, database storage
-- calibrator.py: Interactive calibration workflow
-- config.py: Configuration parameters
-- utils.py: Mathematical utilities
+- EyeTrackingCalibrator: Interactive 9-point calibration, saves coefficients to DB
+- GazeSystem:            Pygame-based calibration and collection for CalibrationScreen
+- EyeTrackingProcessor:  Loads calibration from DB, runs live gaze collection
+- EyeTrackingConfig:     Configuration parameters
+- utils:                 Shared frame correction and feature extraction utilities
 
 Usage:
-    # Calibration (in Calibration UI)
+    # Calibration (via orchestrator.py)
     calibrator = EyeTrackingCalibrator(session_id, db_session)
     calibrator.start()
-
-    while calibrating:
-        frame = calibrator.get_frame()
-        # Display frame, handle user input
-        if user_presses_c:
-            calibrator.calibrate_eye_spheres()
-        if user_presses_s:
-            calibrator.calibrate_screen_center()
-
-    calibration_data = calibrator.get_calibration_data()
+    calibrator.run_calibration()
+    calibrator.save_to_database()
     calibrator.stop()
 
-    # Session tracking (in Main App)
+    # Session tracking (via pipeline.py)
+    calibration_data = EyeTrackingCalibrator.load_from_database(db_session, session_id)
     processor = EyeTrackingProcessor(session_id, db_session, coordinator, config)
     processor.load_calibration(calibration_data)
     processor.start()
-
-    # Games can access gaze
     gaze_x, gaze_y = processor.get_current_gaze()
-
     processor.stop()
 """
 
@@ -48,18 +39,9 @@ from .utils import (
 )
 
 __all__ = [
-    # Main classes
     'EyeTrackingProcessor',
     'EyeTrackingCalibrator',
     'EyeTrackingConfig',
-
-    # Utility functions
-    'rot_x',
-    'rot_y',
-    'normalize',
-    'compute_scale',
-    'draw_wireframe_cube',
-    'draw_coordinate_axes',
 ]
 
 __version__ = '1.0.0'

@@ -10,7 +10,12 @@ from brainflow.board_shim import BoardIds
 
 @dataclass
 class BandPowerRanges:
-    """EEG frequency band definitions (Hz)"""
+    """
+    EEG frequency band definitions in Hz.
+
+    Defines the standard clinical frequency bands used for
+    band power computation during EEG signal processing.
+    """
     delta: Tuple[float, float] = (0.5, 4.0)
     theta: Tuple[float, float] = (4.0, 8.0)
     alpha: Tuple[float, float] = (8.0, 14.0)
@@ -18,7 +23,12 @@ class BandPowerRanges:
     gamma: Tuple[float, float] = (30.0, 50.0)
 
     def to_dict(self) -> Dict[str, Tuple[float, float]]:
-        """Convert to dictionary for easy iteration"""
+        """
+        Convert band definitions to a dictionary for iteration.
+
+        Returns:
+            Dict mapping band names to (low_hz, high_hz) tuples.
+        """
         return {
             'delta': self.delta,
             'theta': self.theta,
@@ -30,7 +40,12 @@ class BandPowerRanges:
 
 @dataclass
 class EEGConfig:
-    """EEG sensor configuration parameters"""
+    """
+    Configuration parameters for the OpenBCI Ganglion EEG sensor.
+
+    Controls BrainFlow hardware settings, sampling rate, signal filtering,
+    band power ranges, and processing mode for both calibration and session operation.
+    """
 
     # Operating mode
     mode: str = 'session'  # 'calibration' or 'session'
@@ -61,7 +76,7 @@ class EEGConfig:
     bands: BandPowerRanges = None
 
     def __post_init__(self):
-        """Initialize bands if not provided"""
+        """Initialise BandPowerRanges with defaults if not provided."""
         if self.bands is None:
             self.bands = BandPowerRanges()
 
@@ -78,7 +93,19 @@ class EEGConfig:
 
     @classmethod
     def for_calibration(cls, serial_port: str = '', mac_address: str = '') -> 'EEGConfig':
-        """Configuration for calibration phase - real-time processing enabled"""
+        """
+        Create a configuration for the calibration phase.
+
+        Enables real-time processing with a shorter processing interval
+        for more frequent UI feedback.
+
+        Args:
+            serial_port:  Serial port for the BLED112 dongle e.g. '/dev/ttyACM0'.
+            mac_address:  Bluetooth MAC address of the Ganglion board.
+
+        Returns:
+            EEGConfig with mode='calibration' and realtime_processing=True.
+        """
         config = cls(
             mode='calibration',
             board_id=BoardIds.GANGLION_BOARD.value,
@@ -90,7 +117,19 @@ class EEGConfig:
 
     @classmethod
     def for_session(cls, serial_port: str = '', mac_address: str = '') -> 'EEGConfig':
-        """Configuration for active session - collection only"""
+        """
+        Create a configuration for an active session.
+
+        Disables real-time processing — raw EEG data is collected and
+        processed post-session.
+
+        Args:
+            serial_port:  Serial port for the BLED112 dongle e.g. '/dev/ttyACM0'.
+            mac_address:  Bluetooth MAC address of the Ganglion board.
+
+        Returns:
+            EEGConfig with mode='session' and realtime_processing=False.
+        """
         config = cls(
             mode='session',
             board_id=BoardIds.GANGLION_BOARD.value,
@@ -101,7 +140,17 @@ class EEGConfig:
 
     @classmethod
     def for_synthetic(cls, mode: str = 'session') -> 'EEGConfig':
-        """Configuration for synthetic/testing board"""
+        """
+        Create a configuration for the BrainFlow synthetic test board.
+
+        Used for development and testing without physical hardware.
+
+        Args:
+            mode: Operating mode, either 'calibration' or 'session'.
+
+        Returns:
+            EEGConfig using BoardIds.SYNTHETIC_BOARD.
+        """
         config = cls(
             mode=mode,
             board_id=BoardIds.SYNTHETIC_BOARD.value,

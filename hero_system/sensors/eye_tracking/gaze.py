@@ -26,6 +26,14 @@ GREY   = (120, 120, 120)
 
 
 class GazeSystem:
+    """
+    Pygame-based gaze calibration and collection system for the HERO calibration screen.
+
+    Runs a 9-point calibration and validation entirely within pygame on the bottom
+    Pi display — no OpenCV windows. On acceptance, starts a background thread that
+    collects gaze samples to sensor_eye_tracking throughout the session.
+    Used by CalibrationScreen in hero_app/calibration/.
+    """
 
     _CALIB_GRID = np.array([
         [0.05, 0.05], [0.50, 0.05], [0.95, 0.05],
@@ -42,6 +50,19 @@ class GazeSystem:
     ], dtype=np.float32)
 
     def __init__(self, session_id, db_session, window, bottom_screen, config):
+        """
+        Initialise the GazeSystem.
+
+        Args:
+            session_id:    UUID of the current session.
+            db_session:    SQLAlchemy session for saving gaze data and calibration.
+            window:        Full combined pygame Surface.
+            bottom_screen: Pygame Surface for the bottom physical display.
+            config:        EyeTrackingConfig instance.
+
+        Returns:
+            None.
+        """
         self.session_id = session_id
         self.db_session = db_session
         self.window     = window
@@ -71,8 +92,14 @@ class GazeSystem:
     # ── Public ────────────────────────────────────────────────────────────
 
     def start(self):
-        """Open camera, calibrate, validate. Repeats if POOR, max 3 attempts.
-        After 3 POOR attempts, keeps the best result and continues."""
+        """
+        Open camera, run calibration and validation, retrying up to 3 times on POOR results.
+
+        After 3 failed attempts, keeps the best result and continues.
+
+        Returns:
+            None.
+        """
         self._open_camera()
         self._open_face_mesh()
 
@@ -117,11 +144,25 @@ class GazeSystem:
         logger.info("GazeSystem ready")
 
     def begin_collection(self):
+        """
+        Start the background gaze collection thread.
+
+        Should be called after start() once calibration is accepted.
+
+        Returns:
+            None.
+        """
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._collection_loop, daemon=True)
         self._thread.start()
 
     def stop(self):
+        """
+        Stop the collection thread and release all camera resources.
+
+        Returns:
+            None.
+        """
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=5)
@@ -131,6 +172,7 @@ class GazeSystem:
     # ── Camera ────────────────────────────────────────────────────────────
 
     def _open_camera(self):
+        """Open the DepthAI camera pipeline and output queue."""
         import depthai as dai
         pipeline = dai.Pipeline()
         cam  = pipeline.create(dai.node.ColorCamera)
@@ -144,6 +186,7 @@ class GazeSystem:
         self.queue  = self.device.getOutputQueue("rgb", maxSize=4, blocking=False)
 
     def _open_face_mesh(self):
+        """Initialise MediaPipe FaceMesh with refine_landmarks enabled."""
         import mediapipe as mp
         mp_fm = mp.solutions.face_mesh
         self.face_mesh = mp_fm.FaceMesh(
@@ -154,6 +197,7 @@ class GazeSystem:
         )
 
     def _close(self):
+        """Release MediaPipe, DepthAI, and kill any lingering depthai processes."""
         try:
             if self.face_mesh: self.face_mesh.close()
         except Exception: pass
@@ -169,11 +213,28 @@ class GazeSystem:
     # ── Frame helpers ────────────────────────────────────────────────────
 
     def _get_frame(self):
+        """
+        Grab and flip the latest frame from the DepthAI queue.
+
+        Returns:
+            BGR numpy array.
+        """
         import cv2
         f = self.queue.get()
         return cv2.flip(f.getCvFrame(), self.config.camera_flip_code)
 
     def _extract_features(self, landmarks, img_w, img_h):
+        """
+        Compute a 4-element normalised iris feature vector from FaceMesh landmarks.
+
+        Args:
+            landmarks: MediaPipe face landmark list.
+            img_w:     Frame width in pixels.
+            img_h:     Frame height in pixels.
+
+        Returns:
+            Numpy array [left_x, left_y, right_x, right_y] of normalised iris positions.
+        """
         def norm_iris(iris_idx, inner_idx, outer_idx):
             iris  = landmarks[iris_idx]
             inner = landmarks[inner_idx]
@@ -189,6 +250,15 @@ class GazeSystem:
         return np.array([lx, ly, rx, ry], dtype=np.float32)
 
     def _predict(self, feat):
+        """
+        Predict screen gaze coordinates from an iris feature vector.
+
+        Args:
+            feat: 4-element feature array from _extract_features.
+
+        Returns:
+            Tuple of (gaze_x, gaze_y) clamped to screen bounds.
+        """
         fp = self.poly.transform(feat.reshape(1, -1))
         x  = int(np.clip(float(self.model_x.predict(fp)[0]), 0, self.w - 1))
         y  = int(np.clip(float(self.model_y.predict(fp)[0]), 0, self.h - 1))
@@ -197,6 +267,12 @@ class GazeSystem:
     # ── GPIO button ──────────────────────────────────────────────────────
 
     def _wait_for_button(self):
+        """
+        Block until the GPIO23 button is pressed or SPACE is hit as fallback.
+
+        Returns:
+            None.
+        """
         try:
             import gpiod
             from gpiod.line import Direction, Value
@@ -227,18 +303,54 @@ class GazeSystem:
     # ── Rendering ────────────────────────────────────────────────────────
 
     def _draw(self, fn):
+        """
+        Clear the bottom screen, call the render function, and flip the display.
+
+        Args:
+            fn: Callable that takes a pygame Surface and renders to it.
+
+        Returns:
+            None.
+        """
         self.bottom.fill(BLACK)
         fn(self.bottom)
         pg.display.flip()
         pg.event.pump()
 
     def _dot(self, surf, tx, ty, colour, future_pts=None):
+        """
+        Draw the active calibration dot and optional future point indicators.
+
+        Args:
+            surf:       Pygame Surface to draw on.
+            tx:         X coordinate of the active dot in pixels.
+            ty:         Y coordinate of the active dot in pixels.
+            colour:     RGB tuple for the active dot.
+            future_pts: Optional array of normalised future point coordinates to draw dimmed.
+
+        Returns:
+            None.
+        """
         if future_pts is not None:
             for fp in future_pts:
                 pg.draw.circle(surf, DIM, (int(fp[0]*self.w), int(fp[1]*self.h)), self.config.dot_radius)
         pg.draw.circle(surf, colour, (tx, ty), self.config.dot_radius)
 
     def _progress(self, surf, tx, ty, colour, n, total):
+        """
+        Draw the active calibration dot with a progress bar beneath it.
+
+        Args:
+            surf:   Pygame Surface to draw on.
+            tx:     X coordinate of the dot in pixels.
+            ty:     Y coordinate of the dot in pixels.
+            colour: RGB tuple for the dot and bar.
+            n:      Number of samples collected so far.
+            total:  Total samples required.
+
+        Returns:
+            None.
+        """
         pg.draw.circle(surf, colour, (tx, ty), self.config.dot_radius)
         bar_w = int((n / total) * 200)
         pg.draw.rect(surf, colour, (tx - 100, ty + 30, bar_w, 14))
@@ -246,6 +358,15 @@ class GazeSystem:
     # ── Calibration ──────────────────────────────────────────────────────
 
     def _run_calibration(self):
+        """
+        Run the 9-point calibration loop and fit polynomial regression models.
+
+        Collects samples_per_point frames per point, averages the features,
+        then fits Ridge regression models for X and Y. Saves to database on completion.
+
+        Returns:
+            None.
+        """
         import cv2
         from sklearn.preprocessing import PolynomialFeatures
         from sklearn.linear_model import Ridge
@@ -290,6 +411,19 @@ class GazeSystem:
         self._save_calibration(feats, tgts)
 
     def _save_calibration(self, feats, tgts):
+        """
+        Persist the fitted model coefficients to CalibrationEyeTracking.
+
+        Replaces any existing calibration record for this session. Keeps a reference
+        to the record so validation results can be appended after _run_validation.
+
+        Args:
+            feats: List of averaged feature vectors per calibration point.
+            tgts:  List of [x, y] screen coordinate targets.
+
+        Returns:
+            None.
+        """
         try:
             from hero_core.database.models.sensors import CalibrationEyeTracking
             # Store the record now; validation columns will be updated after _run_validation
@@ -320,6 +454,15 @@ class GazeSystem:
     # ── Validation ───────────────────────────────────────────────────────
 
     def _run_validation(self):
+        """
+        Run the 9-point validation loop and compute angular error metrics.
+
+        Collects validation_samples frames per point, predicts gaze, and computes
+        mean and std angular error in degrees. Saves results and displays scatter plot.
+
+        Returns:
+            Rating string: 'GOOD', 'ACCEPTABLE', or 'POOR'.
+        """
         import cv2
 
         # ── Instruction screen ───────────────────────────────────────────
@@ -380,7 +523,20 @@ class GazeSystem:
         return rating
 
     def _draw_validation_results(self, tgts, preds, deg, mean, std, rating):
-        """Show a full-screen scatter plot of target vs predicted gaze points."""
+        """
+        Render a full-screen scatter plot of target vs predicted gaze points.
+
+        Args:
+            tgts:   Array of target screen coordinates.
+            preds:  Array of predicted gaze coordinates.
+            deg:    Per-point angular errors in degrees.
+            mean:   Mean angular error in degrees.
+            std:    Standard deviation of angular error in degrees.
+            rating: Overall calibration rating string.
+
+        Returns:
+            None.
+        """
         GOOD_COL       = (0,   210, 80)
         ACCEPTABLE_COL = (220, 180, 0)
         POOR_COL       = (220, 60,  60)
@@ -432,6 +588,17 @@ class GazeSystem:
         self._draw(draw)
 
     def _save_validation(self, mean_deg, std_deg, rating):
+        """
+        Append validation metrics to the existing CalibrationEyeTracking record.
+
+        Args:
+            mean_deg: Mean angular error in degrees.
+            std_deg:  Standard deviation of angular error in degrees.
+            rating:   Overall calibration rating string.
+
+        Returns:
+            None.
+        """
         try:
             if self._calib_record is not None:
                 self._calib_record.validation_mean_deg = mean_deg
@@ -445,6 +612,15 @@ class GazeSystem:
     # ── Collection ───────────────────────────────────────────────────────
 
     def _collection_loop(self):
+        """
+        Background gaze collection thread.
+
+        Grabs frames, predicts EMA-smoothed gaze coordinates, and batch commits
+        SensorEyeTracking rows to the database.
+
+        Returns:
+            None.
+        """
         import cv2
         from hero_core.database.models.sensors import SensorEyeTracking
 

@@ -88,7 +88,15 @@ class MAX30102Processor:
             return None, False, None, False
 
     def reset_buffers(self):
-        """Reset all buffers (call when starting new measurement)"""
+        """
+        Clear all internal signal and smoothing buffers.
+
+        Should be called when starting a new measurement to avoid
+        stale data affecting calculations.
+
+        Returns:
+            None.
+        """
         self.ir_buffer.clear()
         self.red_buffer.clear()
         self.hr_smoothing_buffer.clear()

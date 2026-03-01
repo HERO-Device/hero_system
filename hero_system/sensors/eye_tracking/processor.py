@@ -43,6 +43,18 @@ class EyeTrackingProcessor:
         coordinator: 'SensorCoordinator',
         config: Optional[EyeTrackingConfig] = None,
     ):
+        """
+        Initialise the EyeTrackingProcessor.
+
+        Args:
+            session_id:  UUID of the current session.
+            db_session:  SQLAlchemy session for writing gaze samples.
+            coordinator: SensorCoordinator providing the shared central clock.
+            config:      EyeTrackingConfig instance. Defaults to EyeTrackingConfig.for_session().
+
+        Returns:
+            None.
+        """
         self.session_id  = session_id
         self.db_session  = db_session
         self.coordinator = coordinator
@@ -89,8 +101,16 @@ class EyeTrackingProcessor:
 
     def load_calibration(self, calibration_data: dict):
         """
-        Reconstruct polynomial models from coefficients stored in DB.
-        Call this before start().
+        Reconstruct polynomial regression models from coefficients stored in the database.
+
+        Must be called before start().
+
+        Args:
+            calibration_data: Dict with keys coeff_x, coeff_y, intercept_x, intercept_y,
+                              poly_degree — as returned by EyeTrackingCalibrator.load_from_database().
+
+        Returns:
+            None.
         """
         degree = calibration_data.get('poly_degree', 2)
         self.poly = PolynomialFeatures(degree=degree, include_bias=True)
@@ -112,7 +132,16 @@ class EyeTrackingProcessor:
         logger.info(f"✓ Calibration loaded ({self.poly.n_output_features_} polynomial terms, degree {degree})")
 
     def start(self):
-        """Start camera, MediaPipe and background processing thread."""
+        """
+        Open the DepthAI camera, initialise MediaPipe FaceMesh, and start the processing thread.
+
+        Raises:
+            RuntimeError if called before load_calibration().
+            Exception if the camera or FaceMesh cannot be initialised.
+
+        Returns:
+            None.
+        """
         if not self._is_calibrated():
             raise RuntimeError("Load calibration before calling start()")
 
@@ -154,7 +183,12 @@ class EyeTrackingProcessor:
             raise
 
     def stop(self):
-        """Stop processing thread and clean up."""
+        """
+        Stop the processing thread, release camera and MediaPipe resources, and flush remaining samples.
+
+        Returns:
+            None.
+        """
         if not self.is_running:
             return
 
@@ -184,13 +218,25 @@ class EyeTrackingProcessor:
         self.is_running = False
 
     def get_current_gaze(self) -> Optional[Tuple[int, int]]:
-        """Thread-safe access to latest gaze position for games."""
+        """
+        Thread-safe read of the latest EMA-smoothed gaze position.
+
+        Returns:
+            Tuple of (gaze_x, gaze_y) in pixels, or None if no gaze has been computed yet.
+        """
         with self._gaze_lock:
             if self._gaze_x is not None and self._gaze_y is not None:
                 return (self._gaze_x, self._gaze_y)
             return None
 
     def get_status(self) -> dict:
+        """
+        Return the current processor state.
+
+        Returns:
+            Dict containing sensor type, running state, calibration state,
+            sample count, and current gaze coordinates.
+        """
         return {
             'sensor_type':      'eye_tracking',
             'is_running':       self.is_running,
@@ -204,10 +250,21 @@ class EyeTrackingProcessor:
     # ------------------------------------------------------------------
 
     def _is_calibrated(self) -> bool:
+        """
+        Check whether polynomial models have been loaded.
+
+        Returns:
+            True if poly, model_x and model_y are all set.
+        """
         return self.poly is not None and self.model_x is not None and self.model_y is not None
 
     def _processing_loop(self):
-        """Background thread — grab frames, compute gaze, store to DB."""
+        """
+        Background thread — grabs frames, computes EMA-smoothed gaze, and stores to the database.
+
+        Returns:
+            None.
+        """
         logger.info("Eye tracking processing loop started")
 
         # Initialise EMA cursor at screen centre
@@ -265,7 +322,16 @@ class EyeTrackingProcessor:
         logger.info("Eye tracking processing loop stopped")
 
     def _store_sample(self, gaze_x: int, gaze_y: int):
-        """Write one gaze sample to sensor_eye_tracking."""
+        """
+        Write one gaze sample to sensor_eye_tracking.
+
+        Args:
+            gaze_x: Smoothed X gaze coordinate in pixels.
+            gaze_y: Smoothed Y gaze coordinate in pixels.
+
+        Returns:
+            None.
+        """
         if self.SensorEyeTracking is None:
             return
 
@@ -289,6 +355,6 @@ class EyeTrackingProcessor:
             self.db_session.rollback()
 
     def __repr__(self):
+        """String representation showing running state and sample count."""
         status = "running" if self.is_running else "stopped"
         return f"<EyeTrackingProcessor(status={status}, samples={self.sample_count})>"
-        

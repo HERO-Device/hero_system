@@ -9,7 +9,13 @@ from typing import Tuple
 
 @dataclass
 class EyeTrackingConfig:
-    """Eye tracking configuration - polynomial regression implementation"""
+    """
+    Configuration parameters for the ArduCam Pinsight AI eye tracking sensor.
+
+    Controls calibration grid settings, MediaPipe FaceMesh parameters,
+    polynomial regression settings, GPIO button pin, and gaze smoothing
+    for both calibration and session operation.
+    """
 
     # Operating mode
     mode: str = 'session'  # 'calibration' or 'session'
@@ -70,9 +76,21 @@ class EyeTrackingConfig:
 
     @classmethod
     def for_calibration(cls) -> 'EyeTrackingConfig':
+        """
+        Create a configuration for the calibration phase.
+
+        Returns:
+            EyeTrackingConfig with mode='calibration'.
+        """
         return cls(mode='calibration')
 
     @classmethod
     def for_session(cls) -> 'EyeTrackingConfig':
+        """
+        Create a configuration for an active session.
+
+        Returns:
+            EyeTrackingConfig with mode='session'.
+        """
         return cls(mode='session')
         

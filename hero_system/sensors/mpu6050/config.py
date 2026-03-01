@@ -45,12 +45,24 @@ class MPU6050Config:
 
     @property
     def window_size(self) -> int:
-        """Calculate window size in samples"""
+        """
+        Calculate the tremor analysis window size in samples.
+
+        Returns:
+            Number of samples in one tremor analysis window.
+        """
         return self.sample_rate * self.tremor_window_seconds
 
     @classmethod
     def for_calibration(cls) -> 'MPU6050Config':
-        """Configuration for calibration phase - real-time display enabled"""
+        """
+        Create a configuration for the calibration phase.
+
+        Enables real-time processing for live signal verification.
+
+        Returns:
+            MPU6050Config with mode='calibration' and realtime_processing=True.
+        """
         config = cls(
             mode='calibration',
             realtime_processing=True,
@@ -59,7 +71,15 @@ class MPU6050Config:
 
     @classmethod
     def for_session(cls) -> 'MPU6050Config':
-        """Configuration for active session - raw collection only"""
+        """
+        Create a configuration for an active session.
+
+        Disables real-time processing — raw data is collected and
+        processed post-session.
+
+        Returns:
+            MPU6050Config with mode='session' and realtime_processing=False.
+        """
         config = cls(
             mode='session',
             realtime_processing=False,

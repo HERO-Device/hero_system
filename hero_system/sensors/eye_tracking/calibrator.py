@@ -31,7 +31,12 @@ _CALIB_POINTS_BASE = np.array([
 
 
 def _get_pi_resolution() -> tuple:
-    """Get Pi display resolution — always 1024x600 for the official Pi display."""
+    """
+    Get the Pi display resolution.
+
+    Returns:
+        Tuple of (width, height) in pixels. Always (1024, 600) for the official Pi display.
+    """
     try:
         import subprocess, re
         out = subprocess.check_output(["xrandr"]).decode()
@@ -45,7 +50,15 @@ def _get_pi_resolution() -> tuple:
 
 
 def _setup_gpio_button(gpio_pin: int):
-    """Setup GPIO pin using gpiod v2. Returns request object or None if unavailable."""
+    """
+    Configure a GPIO pin as input using gpiod v2.
+
+    Args:
+        gpio_pin: BCM pin number to configure.
+
+    Returns:
+        gpiod request object if successful, None if gpiod is unavailable.
+    """
     try:
         import gpiod
         from gpiod.line import Direction
@@ -64,9 +77,16 @@ def _setup_gpio_button(gpio_pin: int):
 
 def _wait_for_gpio_button(request, gpio_pin: int) -> bool:
     """
-    Block until GPIO pin goes LOW (button pressed, active-low).
-    request: gpiod request object from _setup_gpio_button, or None for keyboard fallback.
-    Returns True on press, False if 'q' pressed.
+    Block until the GPIO button is pressed or the user presses 'q'.
+
+    Falls back to SPACE key if no gpiod request is provided.
+
+    Args:
+        request:  gpiod request object from _setup_gpio_button, or None for keyboard fallback.
+        gpio_pin: BCM pin number to poll.
+
+    Returns:
+        True on button press, False if 'q' is pressed.
     """
     if request is None:
         # Keyboard fallback
@@ -91,18 +111,30 @@ def _wait_for_gpio_button(request, gpio_pin: int) -> bool:
 
 class EyeTrackingCalibrator:
     """
-    Interactive 9-point gaze calibration.
-    Fits 2nd-order polynomial regression (Ridge) for X and Y screen coords.
-    External GPIO23 button captures each calibration point.
-    Saves fitted model coefficients to DB for use by EyeTrackingProcessor.
-    """
+    Interactive 9-point gaze calibration using polynomial regression.
 
+    Runs a fullscreen OpenCV calibration UI on the bottom Pi display.
+    The patient presses the GPIO23 button to capture each calibration point.
+    Fits 2nd-order Ridge regression models for X and Y screen coordinates
+    and saves the coefficients to CalibrationEyeTracking in the database.
+    """
     def __init__(
         self,
         session_id: UUID,
         db_session,
         config: Optional[EyeTrackingConfig] = None
     ):
+        """
+        Initialise the calibrator.
+
+        Args:
+            session_id: UUID of the current session.
+            db_session: SQLAlchemy session for saving calibration data.
+            config:     EyeTrackingConfig instance. Defaults to EyeTrackingConfig.for_calibration().
+
+        Returns:
+            None.
+        """
         self.session_id = session_id
         self.db_session = db_session
         self.config = config or EyeTrackingConfig.for_calibration()
@@ -135,7 +167,15 @@ class EyeTrackingCalibrator:
     # ------------------------------------------------------------------
 
     def start(self):
-        """Start camera and MediaPipe."""
+        """
+        Open the DepthAI camera pipeline and initialise MediaPipe FaceMesh.
+
+        Raises:
+            Exception if the camera or FaceMesh cannot be initialised.
+
+        Returns:
+            None.
+        """
         try:
             self.pipeline = dai.Pipeline()
             cam  = self.pipeline.create(dai.node.ColorCamera)
@@ -164,7 +204,12 @@ class EyeTrackingCalibrator:
             raise
 
     def stop(self):
-        """Clean up camera and MediaPipe."""
+        """
+        Release GPIO, close MediaPipe and DepthAI resources, and destroy OpenCV windows.
+
+        Returns:
+            None.
+        """
         if hasattr(self, '_gpio_request') and self._gpio_request:
             try:
                 self._gpio_request.release()
@@ -189,10 +234,17 @@ class EyeTrackingCalibrator:
 
     def run_calibration(self) -> bool:
         """
-        Full 9-point calibration loop.
-        Shows fullscreen OpenCV window on Pi display.
-        Patient presses GPIO23 button to capture each point.
-        Returns True if calibration succeeded.
+        Run the full 9-point calibration loop.
+
+        Displays each calibration point on the bottom Pi screen. The patient
+        presses the GPIO23 button to capture each point. Fits polynomial
+        regression models on completion.
+
+        Raises:
+            RuntimeError if called before start().
+
+        Returns:
+            True if calibration completed successfully, False if aborted.
         """
         if not self.is_running:
             raise RuntimeError("Call start() before run_calibration()")
@@ -287,8 +339,12 @@ class EyeTrackingCalibrator:
 
     def save_to_database(self) -> bool:
         """
-        Save fitted model coefficients + intercepts to CalibrationEyeTracking.
-        Coefficients stored as JSON arrays in the new schema columns.
+        Persist fitted model coefficients and intercepts to CalibrationEyeTracking.
+
+        Replaces any existing calibration record for this session.
+
+        Returns:
+            True if saved successfully, False otherwise.
         """
         if not self.is_calibrated:
             logger.error("Cannot save — calibration not complete")
@@ -327,7 +383,17 @@ class EyeTrackingCalibrator:
 
     @staticmethod
     def load_from_database(db_session, session_id: UUID) -> Optional[dict]:
-        """Load calibration coefficients for a session."""
+        """
+        Load calibration coefficients for a session from the database.
+
+        Args:
+            db_session: SQLAlchemy session.
+            session_id: UUID of the session to load calibration for.
+
+        Returns:
+            Dict with keys coeff_x, coeff_y, intercept_x, intercept_y, poly_degree,
+            or None if no calibration record exists.
+        """
         try:
             from hero_core.database.models.sensors import CalibrationEyeTracking
             record = db_session.query(CalibrationEyeTracking).filter(
@@ -347,5 +413,6 @@ class EyeTrackingCalibrator:
             return None
 
     def __repr__(self):
+        """String representation showing calibration state."""
         status = "calibrated" if self.is_calibrated else "not calibrated"
         return f"<EyeTrackingCalibrator({status})>"
