@@ -1,12 +1,13 @@
 """
 HERO System - Session Data Exporter
-Pulls all data for one or more sessions into a local subdirectory.
+Exports anonymised session data to CSV files organised by age range.
 
-Works with both identified sessions (pre-anonymisation, still linked to a user)
-and anonymised sessions (post-anonymisation, linked to anon_demographics).
+Only anonymised sessions (those that have been processed by anonymise_sessions.py)
+can be exported. If a session has not yet been anonymised, the script will
+reject it and prompt you to run anonymise_sessions.py first.
 
 Usage:
-    # Export a single session by ID:
+    # Export a single session:
     python db/export_session.py --session-id <uuid>
 
     # Export multiple sessions:
@@ -20,20 +21,18 @@ Usage:
 
 Output directory structure:
     exports/
-    └── <participant_label>_<session_id_short>_<timestamp>/
-        ├── export_manifest.txt
-        ├── session_info.csv
-        ├── game_results.csv
-        ├── sensor_accelerometer.csv
-        ├── sensor_gyroscope.csv
-        ├── sensor_eeg.csv
-        ├── sensor_eye_tracking.csv
-        ├── sensor_heart_rate.csv
-        ├── sensor_oximeter.csv
-        └── calibration.csv
-
-    For identified sessions, participant_label = username.
-    For anonymised sessions, participant_label = anon_id (e.g. "testing_41-50_1").
+    └── <age_range>/
+        └── <session_id>/
+            ├── export_manifest.txt
+            ├── session_info.csv
+            ├── game_results.csv
+            ├── sensor_accelerometer.csv
+            ├── sensor_gyroscope.csv
+            ├── sensor_eeg.csv
+            ├── sensor_eye_tracking.csv
+            ├── sensor_heart_rate.csv
+            ├── sensor_oximeter.csv
+            └── calibration.csv
 """
 
 import argparse
@@ -49,7 +48,6 @@ from sqlalchemy.exc import SQLAlchemyError
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hero_core.database.models.connection import get_db_connection
-from hero_core.database.models.user import User
 from hero_core.database.models.session import TestSession
 from hero_core.database.models.anon_demographics import AnonDemographics
 from hero_core.database.models.game_results import GameResult
@@ -110,60 +108,28 @@ def _resolve_uuid(raw: str) -> uuid.UUID:
         sys.exit(1)
 
 
-def _participant_label(session: TestSession, db_session) -> tuple[str, dict]:
-    """
-    Return a short human-readable label for the session participant
-    and a dict of participant metadata to include in session_info.csv.
-
-    For identified sessions: uses username.
-    For anonymised sessions: uses anon_id + age_range.
-    """
-    if session.is_anonymised:
-        demo = db_session.query(AnonDemographics).filter_by(anon_id=session.anon_id).first()
-        label = session.anon_id
-        meta  = {
-            "participant_type": "anonymised",
-            "anon_id":          session.anon_id,
-            "age_range":        demo.age_range if demo else "unknown",
-            "anonymised_at":    str(session.anonymised_at),
-        }
-    else:
-        user  = db_session.query(User).filter_by(user_id=session.user_id).first()
-        label = user.username if user else str(session.user_id)[:8]
-        meta  = {
-            "participant_type": "identified",
-            "username":         user.username  if user else None,
-            "full_name":        user.full_name if user else None,
-            "user_id":          str(session.user_id),
-        }
-
-    return label, meta
-
-
 # ---------------------------------------------------------------------------
 # Core export logic
 # ---------------------------------------------------------------------------
 
 def export_session(db_session, session: TestSession, export_root: Path) -> Path:
     """
-    Export all data for a single TestSession to a timestamped subdirectory.
+    Export all data for a single anonymised session to a structured subdirectory.
 
-    Handles both identified and anonymised sessions transparently —
-    participant metadata is resolved from whichever table is appropriate.
+    Directory structure: <export_root>/<age_range>/<session_id>/
 
     Args:
         db_session:  SQLAlchemy session.
-        session:     TestSession ORM object.
-        export_root: Parent directory where the export folder will be created.
+        session:     TestSession ORM object (must be anonymised).
+        export_root: Root exports directory.
 
     Returns:
         Path to the created export directory.
     """
-    participant_label, participant_meta = _participant_label(session, db_session)
+    demo = db_session.query(AnonDemographics).filter_by(anon_id=session.anon_id).first()
+    age_range = demo.age_range if demo else "unknown"
 
-    ts_tag    = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    sid_short = str(session.session_id)[:8]
-    export_dir = export_root / f"{participant_label}_{sid_short}_{ts_tag}"
+    export_dir = export_root / age_range / str(session.session_id)
     export_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Exporting to: {export_dir}")
 
@@ -171,7 +137,7 @@ def export_session(db_session, session: TestSession, export_root: Path) -> Path:
 
     # ---- Session info ----
     session_row = _model_to_dict(session)
-    session_row.update(participant_meta)   # Merge participant fields in
+    session_row["age_range"] = age_range
     n = _write_csv(export_dir / "session_info.csv", [session_row])
     file_counts["session_info.csv"] = n
 
@@ -197,17 +163,12 @@ def export_session(db_session, session: TestSession, export_root: Path) -> Path:
         "===================",
         f"Exported at  : {datetime.now(timezone.utc).isoformat()}",
         f"Session ID   : {session.session_id}",
+        f"Anon ID      : {session.anon_id}",
+        f"Age range    : {age_range}",
+        f"Anonymised at: {session.anonymised_at}",
         f"Session start: {session.started_at}",
         f"Session end  : {session.ended_at}",
         f"Notes        : {session.notes or ''}",
-        f"Anonymised   : {'yes — ' + str(session.anonymised_at) if session.is_anonymised else 'no'}",
-        "",
-        "Participant",
-        "-----------",
-    ]
-    for k, v in participant_meta.items():
-        manifest.append(f"  {k:<20}: {v}")
-    manifest += [
         "",
         "Files",
         "-----",
@@ -217,7 +178,7 @@ def export_session(db_session, session: TestSession, export_root: Path) -> Path:
 
     (export_dir / "export_manifest.txt").write_text("\n".join(manifest) + "\n")
 
-    logger.info(f"✓ Export complete — {export_dir.name}")
+    logger.info(f"✓ Export complete — {age_range}/{session.session_id}")
     return export_dir
 
 
@@ -226,8 +187,17 @@ def export_session(db_session, session: TestSession, export_root: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 def main():
+    """
+    CLI entry point for the session exporter.
+
+    Parses --session-id arguments, connects to hero_db, validates that each
+    session exists and has been anonymised, then calls export_session() for
+    each one. Prints a summary of exported and skipped sessions on completion.
+
+    Exits with code 1 if no sessions were successfully exported.
+    """
     parser = argparse.ArgumentParser(
-        description="Export HERO session data to CSV files.",
+        description="Export anonymised HERO session data to CSV files.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -255,6 +225,7 @@ def main():
     try:
         export_root = Path(args.out_dir)
         export_dirs = []
+        skipped     = []
 
         for raw_id in args.session_ids:
             session_uuid = _resolve_uuid(raw_id)
@@ -262,18 +233,34 @@ def main():
 
             if session is None:
                 logger.warning(f"Session '{raw_id}' not found — skipping.")
+                skipped.append((raw_id, "not found"))
+                continue
+
+            if not session.is_anonymised:
+                logger.warning(
+                    f"Session '{raw_id}' has not been anonymised — skipping. "
+                    f"Run anonymise_sessions.py first."
+                )
+                skipped.append((raw_id, "not anonymised"))
                 continue
 
             export_dir = export_session(db_session, session, export_root)
             export_dirs.append(export_dir)
 
-        if not export_dirs:
-            logger.error("No sessions were exported.")
-            sys.exit(1)
-
+        # Summary
         print(f"\nExported {len(export_dirs)} session(s):")
         for d in export_dirs:
             print(f"  → {d}")
+
+        if skipped:
+            print(f"\nSkipped {len(skipped)} session(s):")
+            for sid, reason in skipped:
+                print(f"  ✗ {sid}  ({reason})")
+            if any(r == "not anonymised" for _, r in skipped):
+                print("\n  Tip: run anonymise_sessions.py to anonymise sessions before exporting.")
+
+        if not export_dirs:
+            sys.exit(1)
 
     except SQLAlchemyError as e:
         logger.error(f"Database error during export: {e}")

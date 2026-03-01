@@ -285,6 +285,22 @@ def scrub_user_pii(db_session, user: User, dry_run: bool) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
+    """
+    CLI entry point for the anonymisation runner.
+
+    Parses arguments, connects to hero_db, queries for sessions that are
+    still linked to a real user and whose started_at is older than the
+    retention threshold. For each eligible session, computes the patient's
+    age range (relative to started_at), gets or creates the appropriate
+    anon_demographics row, then detaches the session from the user and
+    re-links it to the demographics record.
+
+    Once all sessions for a given user are anonymised, scrubs PII from
+    the users table. All actions are written to data_lifecycle_log.
+
+    Supports --dry-run to preview changes without committing anything.
+    Exits with code 1 on database error.
+    """
     parser = argparse.ArgumentParser(
         description="Anonymise HERO sessions that have passed the retention threshold.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -417,4 +433,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
