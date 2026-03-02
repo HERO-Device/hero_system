@@ -10,7 +10,7 @@ from consultation.screen import Screen, Colours
 
 class Avatar:
     def __init__(self, size=pg.Vector2(420, 420), skin_tone=None):
-        avatar_base_path = "hero/consultation/resources/graphics/avatars"
+        avatar_base_path = "consultation/resources/graphics/avatars"
         avatar_paths = [os.path.join(avatar_base_path, avatar_file) for avatar_file in
                         os.listdir(avatar_base_path) if (".png" in avatar_file)]
 
@@ -31,7 +31,7 @@ class Avatar:
             self.size = pg.Vector2(self.image.get_size())
             scale = pg.Vector2(1, 1)
 
-        self.mouth_sprites = [pg.image.load(f"hero/consultation/resources/graphics/sprites/mouths/mouth_{idx}.png")
+        self.mouth_sprites = [pg.image.load(f"consultation/resources/graphics/sprites/mouths/mouth_{idx}.png")
                               for idx in range(1, 13)]
 
         if scale.x != 1 or scale.y != 1:
@@ -49,7 +49,7 @@ class Avatar:
 if __name__ == "__main__":
     os.chdir("/Users/benhoskings/Documents/Pycharm/Hero_Monitor")
     # os.chdir('/Users/benhoskings/Documents/Projects/hero-monitor')
-    sprite_path = "hero/consultation/resources/graphics/sprites"
+    sprite_path = "consultation/resources/graphics/sprites"
 
     pg.init()
     window = pg.display.set_mode(pg.Vector2(512, 512))
@@ -100,3 +100,4 @@ if __name__ == "__main__":
             pg.display.update()
             start = time.monotonic()
             seq_idx = (seq_idx + 1) % len(mouth_ids)
+            

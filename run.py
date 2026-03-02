@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'her
 
 from db.db_access import HeroDB
 from hero_core.coordinator.clock import CentralClock
-from hero_app.session.hero.consultation.orchestrator import Consultation
+from hero_app.session.consultation.orchestrator import Consultation
 import subprocess
 
 logging.basicConfig(

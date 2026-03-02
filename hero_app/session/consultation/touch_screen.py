@@ -62,7 +62,7 @@ class TouchScreen(Screen):
         #
         # self.touch_screen.load_image("hero/consultation/resources/graphics/logo.png", size=self.touch_screen.size.yy * 0.8,
         #                              pos=self.touch_screen.size / 2, location=BlitLocation.centre)
-        image = pg.image.load("hero/consultation/resources/graphics/logo.png")
+        image = pg.image.load("consultation/resources/graphics/logo.png")
         image = pg.transform.scale(image, size=self.size.yy * 0.8)
         pos = self.size / 2
 

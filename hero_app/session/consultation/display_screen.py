@@ -19,14 +19,14 @@ class DisplayScreen(Screen):
         self.speech_text = None
         self.speech_textbox = pg.Rect(0.44*self.size.x, 0.05*self.size.y, 0.5*self.size.x, 0.65*self.size.y)
         self.info_textbox = pg.Rect(0, (1-info_height)*self.size.y, self.size.x, info_height*self.size.y)
-        self.load_image("hero/consultation/resources/graphics/backgrounds/background.png", fill=True, base=True, pos=(0, 0))
-        self.load_image("hero/consultation/resources/graphics/logo.png", size=(38*3, 53*600/256), pos=(262*3, 52*600/256), base=True)
+        self.load_image("consultation/resources/graphics/backgrounds/background.png", fill=True, base=True, pos=(0, 0))
+        self.load_image("consultation/resources/graphics/logo.png", size=(38*3, 53*600/256), pos=(262*3, 52*600/256), base=True)
         pg.draw.rect(self.base_surface, Colours.hero_blue.value, self.info_textbox)
 
         self.power_off_surface = pg.Surface((self.size.x, self.size.y), pg.SRCALPHA)
         self.power_off_surface.fill(Colours.white.value)
 
-        image = pg.image.load("hero/consultation/resources/graphics/hero_text.png")
+        image = pg.image.load("consultation/resources/graphics/hero_text.png")
         pos = self.size/2
 
         imageRect = pg.Rect(pos, image.get_size())
