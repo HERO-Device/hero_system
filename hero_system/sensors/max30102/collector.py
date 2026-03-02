@@ -6,12 +6,14 @@ Raw IR and Red signal collection only - all processing delegated to processor
 import logging
 import time
 import threading
+import sys
+import os
+import importlib.util
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 from uuid import UUID
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'max30102_lib'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'max30102_lib'))
 from max30102 import MAX30102
 
 from .config import MAX30102Config
@@ -149,13 +151,11 @@ class MAX30102Collector:
         try:
             logger.info("Stopping MAX30102 data collection...")
 
-            # Signal thread to stop
             self.stop_event.set()
 
             if self.collection_thread and self.collection_thread.is_alive():
                 self.collection_thread.join(timeout=5)
 
-            # Final commit
             try:
                 self.db_session.commit()
                 logger.info(f"Final commit: {self.sample_count} total samples collected")
@@ -184,11 +184,9 @@ class MAX30102Collector:
         
         while not self.stop_event.is_set():
             try:
-                # Read single sample
                 red, ir = self.sensor.read_fifo()
 
                 if red and ir:
-                    # Keep local buffers for any future real-time processing
                     self.ir_buffer.append(ir)
                     self.red_buffer.append(red)
 
@@ -196,7 +194,6 @@ class MAX30102Collector:
                         self.ir_buffer.pop(0)
                         self.red_buffer.pop(0)
 
-                    # Persist raw sample to the database
                     self._store_raw_sample(ir, red)
 
                 time.sleep(self.config.collection_interval)
@@ -209,24 +206,20 @@ class MAX30102Collector:
 
     def _store_raw_sample(self, ir: int, red: int):
         """
-        Store raw IR and Red signals to database
+        Store raw IR and Red signals to database.
 
         Args:
-            ir: Infrared signal value
-            red: Red signal value
+            ir:  Infrared signal value.
+            red: Red signal value.
         """
         if self.SensorHeartRate is None or self.SensorOximeter is None:
             return
 
         try:
-            # Get synchronized timestamp from coordinator
             timestamp = self.coordinator.get_central_timestamp()
+            is_valid  = self._check_signal_quality(ir, red)
+            quality   = self._calculate_quality_score(ir, red)
 
-            # Check signal quality
-            is_valid = self._check_signal_quality(ir, red)
-            quality = self._calculate_quality_score(ir, red)
-
-            # Store heart rate sensor data (IR signal)
             hr_sample = self.SensorHeartRate(
                 time=timestamp,
                 session_id=self.session_id,
@@ -236,7 +229,6 @@ class MAX30102Collector:
             )
             self.db_session.add(hr_sample)
 
-            # Store oximeter data (Red and IR signals)
             ox_sample = self.SensorOximeter(
                 time=timestamp,
                 session_id=self.session_id,
@@ -248,7 +240,6 @@ class MAX30102Collector:
 
             self.sample_count += 1
 
-            # Batch commit
             if self.sample_count % self.config.batch_commit_size == 0:
                 self.db_session.commit()
                 logger.debug(f"Committed batch: {self.sample_count} total samples")
@@ -259,42 +250,37 @@ class MAX30102Collector:
 
     def _check_signal_quality(self, ir: int, red: int) -> bool:
         """
-        Check if signal quality is acceptable
+        Check if signal quality is acceptable.
 
         Args:
-            ir: Infrared signal value
-            red: Red signal value
+            ir:  Infrared signal value.
+            red: Red signal value.
 
         Returns:
-            True if signal quality is good
+            True if signal quality is good.
         """
-        # Check if signals are within valid range
         if ir < self.config.min_signal_threshold or ir > self.config.max_signal_threshold:
             return False
         if red < self.config.min_signal_threshold or red > self.config.max_signal_threshold:
             return False
-
         return True
 
     def _calculate_quality_score(self, ir: int, red: int) -> int:
         """
-        Calculate signal quality score (0=poor, 1=fair, 2=good)
+        Calculate signal quality score (0=poor, 1=fair, 2=good).
 
         Args:
-            ir: Infrared signal value
-            red: Red signal value
+            ir:  Infrared signal value.
+            red: Red signal value.
 
         Returns:
-            Quality score (0-2)
+            Quality score (0-2).
         """
         if not self._check_signal_quality(ir, red):
-            return 0  # Poor
-
-        # Check if signal is strong
+            return 0
         if ir > 50000 and red > 50000:
-            return 2  # Good
-        else:
-            return 1  # Fair
+            return 2
+        return 1
 
     def get_status(self) -> dict:
         """
@@ -316,3 +302,4 @@ class MAX30102Collector:
         """String representation showing running state."""
         status = "running" if self.is_running else "stopped"
         return f"<MAX30102Collector(status={status})>"
+        

@@ -122,7 +122,10 @@ def main():
     print("=" * 50)
     print()
 
-    # 1. Connect to DB
+    # 1. Clean up any leftover depthai processes from previous sessions
+    subprocess.run(['sudo', 'pkill', '-f', 'depthai'], capture_output=True)
+
+    # 2. Connect to DB
     logger.info("Connecting to database...")
     _start_exit_monitor()
     try:
@@ -133,18 +136,18 @@ def main():
         print("  Make sure PostgreSQL is running.")
         sys.exit(1)
 
-    # 2. Start central clock — shared by sensors and games
+    # 3. Start central clock — shared by sensors and games
     clock = CentralClock()
     logger.info(f"✓ Central clock started: {clock}")
 
     try:
-        # 3. Init pygame
+        # 4. Init pygame
         os.environ['SDL_VIDEO_WINDOW_POS'] = "1029,600"  # Top physical screen (HDMI-A-2)
         pg.init()
         pg.font.init()
         pg.event.pump()
 
-        # 4. Start sensors (stubbed — session_id set after login)
+        # 5. Start sensors (stubbed — session_id set after login)
         pipeline = None
 
         def on_session_start(session_id):
@@ -206,7 +209,7 @@ def main():
 
         coordinator = None  # Will be set via callback
 
-        # 5. Run consultation — pass in db and shared clock
+        # 6. Run consultation — pass in db and shared clock
         logger.info("Starting consultation...")
         os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hero_app', 'session'))
         consult = Consultation(
@@ -223,7 +226,7 @@ def main():
 
         consult.loop()
 
-        # 6. Stop sensors
+        # 7. Stop sensors
         stop_sensors(pipeline)
 
     except KeyboardInterrupt:
@@ -241,7 +244,6 @@ def main():
         except Exception:
             pass
         pg.quit()
-        import subprocess
         subprocess.run(['sudo', 'pkill', '-f', 'depthai'], capture_output=True)
         print("\n✓ HERO session complete.")
 

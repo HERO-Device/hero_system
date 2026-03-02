@@ -37,7 +37,7 @@ TEXT_GRAY = (100, 100, 100)
 
 class MemoryGame:
     def __init__(self, parent=None, auto_run=False,
-                 icons_folder="hero/consultation/resources/graphics/games/memory_icons"):
+                 icons_folder="consultation/resources/graphics/games/memory_icons"):
         self.parent = parent
         self.auto_run = auto_run
         self.running = False
