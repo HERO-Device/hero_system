@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 import gtts
 import numpy as np
-import pandas as pd
 import pygame as pg
 
 # Hero imports
@@ -76,8 +75,7 @@ class Consultation:
 
     def __init__(self, enable_speech=True, scale=1, pi=True, authenticate=True,
                  seamless=True, username=None, password=None, consult_date=None,
-                 auto_run=False, wct_turns=20, pss_questions=10, db_client=None,
-                 local=True, db=None, clock=None, on_session_start=None):
+                 auto_run=False,local=True, db=None, clock=None, on_session_start=None):
         """
         Initialize Consultation.
 
@@ -91,9 +89,6 @@ class Consultation:
             password: Pre-filled password (for testing)
             consult_date: Override consultation date
             auto_run: Automatically run tests (for testing)
-            wct_turns: Legacy, unused
-            pss_questions: Legacy, unused
-            db_client: Legacy, unused
             local: Save locally as JSON backup
             db: HeroDB instance for PostgreSQL integration
             clock: CentralClock instance for synchronized timestamps
@@ -134,13 +129,6 @@ class Consultation:
             pg.font.init()
 
         self.fonts = Fonts()
-
-        # Load user data (CSV fallback for login)
-        if os.path.exists("data/user_data.csv"):
-            self.all_user_data = pd.read_csv("data/user_data.csv")
-            self.all_user_data = self.all_user_data.set_index("Username")
-        else:
-            self.all_user_data = None
 
         # Initialize pygame window — spans both physical screens (1024x1200)
         os.environ['SDL_VIDEO_WINDOW_POS'] = "1029,600"
@@ -757,23 +745,3 @@ class Consultation:
                         self.running = False
 
         self.exit_sequence()
-
-
-# Standalone testing
-if __name__ == "__main__":
-    os.environ['SDL_VIDEO_WINDOW_POS'] = "1029,600"  # Top physical screen (HDMI-A-2)
-    pg.init()
-    pg.font.init()
-    pg.event.pump()
-
-    consult = Consultation(
-        pi=False,
-        authenticate=False,
-        seamless=True,
-        local=True,
-        enable_speech=False,
-        scale=0.8,
-    )
-
-    consult.loop()
-    

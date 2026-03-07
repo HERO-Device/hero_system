@@ -33,18 +33,6 @@ class BlitLocation(Enum):
     centre = 8
 
 
-class BlitPosition(Enum):
-    topLeft = 0
-    midTop = 1
-    topRight = 2
-    bottomLeft = 3
-    midBottom = 4
-    bottomRight = 5
-    midLeft = 6
-    midRight = 7
-    centre = 8
-
-
 class Fonts:
     def __init__(self):
         self.large = pg.font.Font("consultation/resources/fonts/calibri-regular.ttf", 50)
@@ -144,8 +132,6 @@ class Screen:
             surf.blit(image, pos)
 
     def add_text(self, text, pos, lines=1, colour=Colours.black, bg_colour=None, location=BlitLocation.topLeft, sprite=False, base=False):
-        # pos will be either a tuple (x, y), or BlitPosition
-
         text_surf = self.font.render(text, True, colour.value)
         if bg_colour:
             bg_surf = pg.Surface(text_surf.get_size(), pg.SRCALPHA)
@@ -226,8 +212,6 @@ class Screen:
         blitPos = rect.topleft
         size = rect.size
 
-        # pg.draw.rect(self.surface, Colours.red.value, rect, width=5)
-
         if location == BlitLocation.centre:
             blitPos -= size / 2
         elif location == BlitLocation.topRight:
@@ -288,20 +272,10 @@ class Screen:
         pad = (width - 1) / 2
         for x_pos in range(int(pos[0] - pad), int(pos[0] + 1 + pad)):
             for y_pos in range(int(pos[1] - pad), int(pos[1] + 1 + pad)):
-                # if np.all(pos != np.array([x_pos, y_pos])):
-                #     colour = pg.Color(colour.r, colour.g, colour.b, 0)
-                # else:
-                #     colour = pg.Color(colour.r, colour.g, colour.b, 255)
-
                 if base:
                     self.base_surface.set_at((x_pos, y_pos), colour)
                 else:
                     self.surface.set_at((x_pos, y_pos), colour)
-
-        # new_array[np.int16(positions[0, :]), np.int16(positions[1, :]), :] = [0, 0, 0]
-        # new_surf = pg.surfarray.make_surface(new_array)
-        # new_surf.set_alpha()
-        # self.surface = new_surf
 
     def add_speech_bubble(self, rect, pos, border=4, tiers=4, colour=Colours.black, base=False):
         rect: pg.Rect
@@ -309,7 +283,6 @@ class Screen:
         inside_tiers = max([2, math.floor(tiers/2)])
         blit_width = border / tiers
         surf = pg.Surface(rect.size, pg.SRCALPHA)
-        # surf.fill(Colours.red.value)
 
         tier_rect = rect
         tier_rect.topleft = (0, 0)
@@ -336,9 +309,7 @@ class Screen:
         tier_rect.topleft = (0, 0)
         tier_rect = tier_rect.inflate(-border*2, -border*2)
 
-        # print(border)
         for idx, count in enumerate(range(inside_tiers)):
-            # pg.draw.rect(surf, Colours.red.value, tier_rect, width=1)
             top_line_1 = pg.Rect(tier_rect.topleft,
                                  ((inside_tiers-idx)*blit_width, blit_width))
             top_line_2 = pg.Rect(tier_rect.topright - pg.Vector2((inside_tiers - idx) * blit_width, 0),
@@ -350,9 +321,7 @@ class Screen:
                                  ((inside_tiers - idx) * blit_width, blit_width))
 
             tier_rect = tier_rect.inflate(0, -blit_width * 2)
-            # print(top_line_2)
 
-            # for line in border_lines:
             pg.draw.rect(surf, colour.value, top_line_1)
             pg.draw.rect(surf, colour.value, top_line_2)
             pg.draw.rect(surf, colour.value, bottom_line_1)

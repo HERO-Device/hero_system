@@ -4,7 +4,6 @@ from consultation.touch_screen import TouchScreen, GameButton, GameObjects
 from consultation.display_screen import DisplayScreen
 from consultation.screen import Colours, BlitLocation
 from consultation.utils import take_screenshot, NpEncoder, get_pipe_data
-from consultation.nlp import NLP
 
 import cv2
 import wave
@@ -116,7 +115,7 @@ class AffectiveModulePi:
         self.cleanse_files = cleanse_files
         self.classify = classify
 
-        base_options = python.BaseOptions(model_asset_path='models/face_landmarker_v2_with_blendshapes.task')
+        base_options = python.BaseOptions(model_asset_path='../../../../old_temp_files/models/face_landmarker_v2_with_blendshapes.task')
         options = vision.FaceLandmarkerOptions(base_options=base_options, output_face_blendshapes=True,
                                                output_facial_transformation_matrixes=True, num_faces=1, )
 
@@ -359,15 +358,3 @@ class AffectiveModulePi:
                         self.running = False
 
         self.exit_sequence()
-
-
-if __name__ == "__main__":
-    os.chdir("../..")
-    pg.init()
-    # Module Testing
-    module_name = AffectiveModulePi(pi=False, cleanse_files=False, auto_run=True)
-    module_name.loop()
-
-    print(module_name.label_data)
-
-    print("Module run successfully")

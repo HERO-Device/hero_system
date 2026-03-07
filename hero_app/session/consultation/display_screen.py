@@ -48,7 +48,6 @@ class DisplayScreen(Screen):
                           location=BlitLocation.bottomLeft)
 
             border = 5
-            # self.add_speech_bubble(self.speech_textbox.copy(), self.speech_textbox.topleft, border=border, tiers=4)
             triangle_points = (self.speech_textbox.topleft + pg.Vector2(0, 0.8*self.speech_textbox.h),
                                self.speech_textbox.topleft + pg.Vector2(0, 0.9*self.speech_textbox.h),
                                self.speech_textbox.topleft + pg.Vector2(-0.1*self.speech_textbox.w, 0.9*self.speech_textbox.h))
@@ -70,10 +69,3 @@ class DisplayScreen(Screen):
         display_surf.blit(self.sprite_surface, (0, 0))
 
         return display_surf
-
-
-if __name__ == "__main__":
-    os.chdir('/Users/benhoskings/Documents/Projects/hero-monitor')
-    pg.init()
-    window = pg.display.set_mode(pg.Vector2(1024, 600))
-    consult_display = DisplayScreen(pg.Vector2(window.get_size()))

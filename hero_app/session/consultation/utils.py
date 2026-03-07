@@ -6,17 +6,11 @@ import json
 from datetime import date, datetime
 from enum import Enum
 import subprocess
-
 try:
     import gpiod
     from gpiod.line import Direction, Value
 except ImportError:
     gpiod = None
-
-
-
-def sigmoid(x):
-    return
 
 
 def get_pipe_data(detector, image):
@@ -34,7 +28,7 @@ def get_pipe_data(detector, image):
         blend_scores = [AU.score for AU in blend]
         pose_matrix = faceDetection.facial_transformation_matrixes[0]
 
-    except:
+    except Exception:
         landArray, blend_scores, pose_matrix = None, None, None
 
     return landArray, blend_scores, pose_matrix
@@ -151,25 +145,3 @@ class ButtonModule:
                 self.states[name] = pressed[val]
 
         return None
-
-
-if __name__ == "__main__":
-    pg.init()
-    pg.event.pump()
-
-    pi = True
-
-    buttons = ButtonModule(pi=pi)
-
-    while True:
-        if not pi:
-            pg.event.pump()
-
-            pressed = buttons.check_pressed()
-            if pressed:
-                print(f"{pressed}!")
-        else:
-            pressed = buttons.check_pressed()
-            if pressed:
-                print(f"{pressed}!")
-                

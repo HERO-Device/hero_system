@@ -57,11 +57,6 @@ class TouchScreen(Screen):
         self.power_off_surface = pg.Surface((self.size.x, self.size.y), pg.SRCALPHA)
         self.power_off_surface.fill(Colours.white.value)
 
-        # self.touch_screen.surface.fill(Colours.white.value)
-        # self.display_screen.state = 2
-        #
-        # self.touch_screen.load_image("hero/consultation/resources/graphics/logo.png", size=self.touch_screen.size.yy * 0.8,
-        #                              pos=self.touch_screen.size / 2, location=BlitLocation.centre)
         image = pg.image.load("consultation/resources/graphics/logo.png")
         image = pg.transform.scale(image, size=self.size.yy * 0.8)
         pos = self.size / 2

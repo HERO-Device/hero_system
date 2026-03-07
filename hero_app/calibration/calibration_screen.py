@@ -1,6 +1,9 @@
 """
-HERO Calibration Screen
-Terminal-style sensor init display, then eye tracking calibration on bottom screen.
+Terminal-style sensor initialisation display followed by eye tracking calibration.
+
+Renders a scrolling status screen on the top display showing each sensor's
+init result, then hands off to GazeSystem for the eye tracking calibration
+on the bottom display.
 """
 
 import logging
@@ -36,6 +39,20 @@ class CalibrationScreen:
         on_complete: Optional[Callable] = None,
         pi: bool = True,
     ):
+        """
+        Initialise the calibration screen.
+
+        Args:
+            session_id:   UUID of the current session.
+            db_session:   SQLAlchemy session for eye tracking calibration data.
+            display_size: Size of a single physical display as a pygame Vector2.
+            window:       Full combined pygame Surface spanning both displays.
+            on_complete:  Optional callback invoked when calibration is accepted.
+            pi:           True if running on the Raspberry Pi, False for development.
+
+        Returns:
+            None.
+        """
         self.session_id   = session_id
         self.db_session   = db_session
         self.display_size = display_size
@@ -54,6 +71,16 @@ class CalibrationScreen:
         self.font = pg.font.SysFont('couriernew', 18, bold=True)
 
     def run(self):
+        """
+        Run the full calibration sequence.
+
+        Tests each sensor in order, runs EEG impedance check, initialises
+        eye tracking calibration, then waits for user input before invoking
+        the on_complete callback.
+
+        Returns:
+            None.
+        """
         self._add_line("HERO Calibration", CYAN)
         self._add_line("", FG)
         self._render()
@@ -107,6 +134,12 @@ class CalibrationScreen:
             self.on_complete()
 
     def _wait_for_input(self):
+        """
+        Block until a mouse click, touch, or keypress is received.
+
+        Returns:
+            None.
+        """
         pg.event.clear()
         while True:
             for event in pg.event.get():
@@ -115,6 +148,15 @@ class CalibrationScreen:
             time.sleep(0.01)
 
     def _test_sensor(self, sensor_key: str):
+        """
+        Probe a sensor over I2C and verify its device ID.
+
+        Args:
+            sensor_key: Sensor identifier, either 'mpu6050' or 'max30102'.
+
+        Returns:
+            Tuple of (success, message) where message describes the result or error.
+        """
         try:
             if sensor_key == 'mpu6050':
                 import smbus2
@@ -135,11 +177,26 @@ class CalibrationScreen:
         return False, "Unknown sensor"
 
     def _find_serial_port(self):
+        """
+        Find the first available ttyACM serial port for the BLED112 dongle.
+
+        Returns:
+            Device path string e.g. '/dev/ttyACM0', or None if not found.
+        """
         import glob
         ports = sorted(glob.glob('/dev/ttyACM*'))
         return ports[0] if ports else None
 
     def _check_eeg_impedance(self):
+        """
+        Run a 3-second EEG impedance check and log per-channel results.
+
+        Connects to the Ganglion board, enables impedance mode, collects data,
+        and logs each channel's impedance in kΩ with an OK/HIGH status indicator.
+
+        Returns:
+            None.
+        """
         THRESHOLD = 50000
         try:
             import numpy as np
@@ -186,9 +243,28 @@ class CalibrationScreen:
             self._render()
 
     def _add_line(self, text: str, colour):
+        """
+        Append a line to the terminal display buffer.
+
+        Args:
+            text:   Line content to display.
+            colour: RGB tuple for the line colour.
+
+        Returns:
+            None.
+        """
         self.lines.append([text, colour, None])
 
     def _render(self):
+        """
+        Redraw the terminal display with the current line buffer.
+
+        Shows the most recent lines that fit within the display height,
+        centred vertically and horizontally.
+
+        Returns:
+            None.
+        """
         w   = int(self.display_size.x)
         h   = int(self.display_size.y)
         sur = pg.Surface((w, h))
@@ -207,4 +283,3 @@ class CalibrationScreen:
         self.window.blit(sur, (0, 0))
         pg.display.flip()
         pg.event.pump()
-        

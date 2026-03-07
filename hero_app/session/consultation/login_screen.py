@@ -1,8 +1,6 @@
 import math
-import os
 import time
 
-import pandas as pd
 import pygame as pg
 
 from consultation.utils import Buttons, ButtonModule, take_screenshot
@@ -25,7 +23,6 @@ class LoginScreen:
             self.display_size = parent.display_size
             self.bottom_screen = parent.bottom_screen
             self.top_screen = parent.top_screen
-            self.all_user_data = parent.all_user_data
             self.display_screen = DisplayScreen(self.display_size, avatar=parent.avatar)
             self.button_module = parent.button_module
 
@@ -36,12 +33,6 @@ class LoginScreen:
             self.top_screen = self.window.subsurface(((0, 0), self.display_size))
             self.bottom_screen = self.window.subsurface((0, self.display_size.y), self.display_size)
             self.display_screen = DisplayScreen(self.display_size)
-
-            if os.path.exists("data/user_data.csv"):
-                self.all_user_data = pd.read_csv("data/user_data.csv")
-                self.all_user_data = self.all_user_data.set_index("Username")
-            else:
-                self.all_user_data = None
 
             self.button_module = ButtonModule(pi=False)
 
@@ -142,19 +133,12 @@ class LoginScreen:
         pg.display.flip()
 
     def check_credentials(self):
-        """
-        Verify login credentials.
-        Tries PostgreSQL DB first, falls back to CSV.
-        Sets self.parent.user on success.
-        """
         username = "".join(self.user_string)
         password = "".join(self.pass_string)
 
-        # --- PostgreSQL DB auth ---
         if self.parent and self.parent.db:
             db_user = self.parent.db.verify_login(username, password)
             if db_user:
-                # Set parent.user from DB user object
                 self.parent.user = User(
                     name=db_user.full_name or username,
                     age=None,
@@ -163,12 +147,6 @@ class LoginScreen:
                 return True
             else:
                 return False
-
-        # --- CSV fallback ---
-        if self.all_user_data is not None:
-            if username in self.all_user_data.index:
-                if self.all_user_data.loc[username, "Password"] == password:
-                    return True
 
         return False
 
@@ -192,25 +170,10 @@ class LoginScreen:
                 self.running = False
 
     def exit_sequence(self):
-        """
-        Finalise login.
-        parent.user is already set by check_credentials() if using DB.
-        Falls back to CSV user creation if no DB.
-        """
         self.running = False
-        username = "".join(self.user_string)
 
-        # DB path: parent.user already set in check_credentials
         if self.parent and self.parent.user:
             return self.parent.user
-
-        # CSV fallback
-        if self.all_user_data is not None and username in self.all_user_data.index:
-            user_data = self.all_user_data.loc[username]
-            user = User(name=user_data["FirstName"], age=21, id=user_data["UserID"])
-            if self.parent:
-                self.parent.user = user
-            return user
 
         return None
 
@@ -299,11 +262,3 @@ class LoginScreen:
                 self.button_actions(selected)
 
         return self.exit_sequence()
-
-
-if __name__ == "__main__":
-    pg.init()
-    login_screen = LoginScreen()
-    login_screen.loop()
-    print("Module run successfully")
-    
