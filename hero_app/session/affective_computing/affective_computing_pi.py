@@ -1,3 +1,11 @@
+"""
+Affective computing module for the HERO consultation system.
+
+Captures facial imagery and audio during patient question sessions,
+runs facial expression recognition via a Keras model, and stores
+per-question affective labels for downstream analysis.
+"""
+
 import numpy as np
 import pygame as pg
 from consultation.touch_screen import TouchScreen, GameButton, GameObjects
@@ -23,6 +31,19 @@ from pygame import Rect, Vector2
 
 
 def segment_face(landmarks, img_array):
+    """
+    Crop a face region from an image using MediaPipe landmark bounding box.
+
+    Expands the bounding box by a fixed scale factor to include the full
+    head region beyond the landmark extents.
+
+    Args:
+        landmarks: Numpy array of shape (N, 3) containing normalised landmark coordinates.
+        img_array: numpy array of the source image (H, W, C).
+
+    Returns:
+        Cropped numpy image array of the face region.
+    """
     px_locations_x = landmarks[:, 0] * img_array.shape[1]
     px_locations_y = landmarks[:, 1] * img_array.shape[0]
 
@@ -40,8 +61,47 @@ def segment_face(landmarks, img_array):
 
 
 class AffectiveModulePi:
-    def __init__(self, size=(1024, 600), parent=None, pi=True, cleanse_files=True, classify=True, auto_run=False):
+    """
+    Consultation module that records facial and audio data during patient responses.
 
+    Captures images via PiCamera2 or OpenCV and audio via PyAudio across a
+    configurable number of questions. On completion, runs facial expression
+    recognition using a pre-trained Keras model and stores per-question labels.
+
+    Attributes:
+        parent: Parent Consultation instance, or None in standalone mode.
+        display_size: Vector2 dimensions of the display area.
+        display_screen: DisplayScreen instance for the upper screen.
+        touch_screen: TouchScreen instance for the lower screen.
+        main_button: Begin/stop GameButton displayed during questions.
+        listening: True while audio and image capture is active.
+        running: Main loop control flag.
+        pi: True if running on Raspberry Pi with PiCamera2.
+        question_count: Total number of questions to ask.
+        question_idx: Index of the current question.
+        picam: PiCamera2 instance (Pi only).
+        cv2_cam: OpenCV VideoCapture instance (non-Pi only).
+        pyaud: PyAudio instance for microphone capture.
+        audio_rate: Sample rate of the default audio input device.
+        cleanse_files: If True, delete captured data after classification.
+        classify: If True, run FER classification in exit_sequence.
+        detector: MediaPipe FaceLandmarker for face cropping.
+        auto_run: If True, skip capture and use synthetic data.
+        label_data: Dict of per-question affective labels populated by exit_sequence.
+    """
+
+    def __init__(self, size=(1024, 600), parent=None, pi=True, cleanse_files=True, classify=True, auto_run=False):
+        """
+        Initialise the affective module, camera, microphone, and face detector.
+
+        Args:
+            size: Tuple (width, height) used in standalone mode without a parent.
+            parent: Parent Consultation instance. If provided, screens are shared.
+            pi: If True, use PiCamera2 for image capture. If False, use OpenCV.
+            cleanse_files: If True, delete captured images and audio after classification.
+            classify: If True, run the FER model in exit_sequence.
+            auto_run: If True, bypass capture and generate synthetic labels.
+        """
         self.parent = parent
         if parent is not None:
             self.display_size = parent.display_size
@@ -66,12 +126,9 @@ class AffectiveModulePi:
                                       button_size, id=1, text="Begin", colour=Colours.hero_blue)
         self.touch_screen.sprites = GameObjects([self.main_button])
 
-        # Additional class properties
         self.listening = False
-
         self.running = False
         self.pi = pi
-
         self.question_count = 2
         self.question_idx = 0
 
@@ -87,11 +144,9 @@ class AffectiveModulePi:
             self.cv2_cam = None
 
         else:
-            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # this is the magic!
-
+            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-
             self.cv2_cam = None
             self.picam = None
             print("pi not specified, will use cv2 instead")
@@ -107,7 +162,7 @@ class AffectiveModulePi:
             device_info = self.pyaud.get_default_input_device_info()
             self.audio_rate = int(device_info["defaultSampleRate"])
 
-        except:
+        except Exception:
             print("Microphone error")
             self.pyaud = None
             self.audio_rate = None
@@ -115,16 +170,16 @@ class AffectiveModulePi:
         self.cleanse_files = cleanse_files
         self.classify = classify
 
-        base_options = python.BaseOptions(model_asset_path='../../../../old_temp_files/models/face_landmarker_v2_with_blendshapes.task')
+        base_options = python.BaseOptions(model_asset_path='models/face_landmarker_v2_with_blendshapes.task')
         options = vision.FaceLandmarkerOptions(base_options=base_options, output_face_blendshapes=True,
-                                               output_facial_transformation_matrixes=True, num_faces=1, )
-
+                                               output_facial_transformation_matrixes=True, num_faces=1)
         self.detector = vision.FaceLandmarker.create_from_options(options)
 
         self.auto_run = auto_run
         self.label_data = None
 
     def update_display(self):
+        """Refresh both screens and blit the current state to the physical displays."""
         self.display_screen.refresh()
         self.touch_screen.refresh()
 
@@ -138,15 +193,21 @@ class AffectiveModulePi:
         pg.display.flip()
 
     def entry_sequence(self):
-        # pre-loop initialisation section
-        # add everything needed to introduce your module and explain
-        # what the users are expected to do (e.g. game rules, aim, etc.)
+        """Initialise the module state and show the start prompt."""
         self.running = True
         self.display_screen.instruction = "Press the button to start"
-        self.update_display()  # render graphics to main consult
+        self.update_display()
 
     def crop_face(self, frame):
-        # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        """
+        Detect and crop the face region from a camera frame.
+
+        Args:
+            frame: numpy image array (H, W, C) in RGB format.
+
+        Returns:
+            Cropped face numpy array, or None if no face is detected.
+        """
         img_mp = mp.Image(data=frame, image_format=mp.ImageFormat.SRGB)
         face_landmarks, _, _ = get_pipe_data(self.detector, img_mp)
         if face_landmarks is not None:
@@ -157,7 +218,17 @@ class AffectiveModulePi:
             return None
 
     def question_loop(self, max_time=10):
+        """
+        Run a single question capture session, recording audio and facial images.
 
+        Captures audio at the device sample rate and samples camera frames
+        every 16 audio chunks. Images are cropped to the face region where
+        possible. All data is saved under data/affective_images/question_{idx}/
+        and data/nlp_audio/.
+
+        Args:
+            max_time: Maximum recording duration in seconds.
+        """
         self.display_screen.instruction = "Press the button to stop"
         self.main_button.text = "I'm finished"
         self.update_display()
@@ -190,15 +261,11 @@ class AffectiveModulePi:
         iter_per_second = int((self.audio_rate / chunk_size))
         for i in range(0, iter_per_second * max_time):
             data = stream.read(chunk_size, exception_on_overflow=False)
-            # data is a raw bytes object
             frames.append(data)
 
             if (i % 16) == 0:
                 if self.picam:
-                    # self.picam.capture_file(os.path.join(image_directory, f"im_{i}.png"))
-                    # frame =
                     frame = cv2.flip(self.picam.capture_array(), 0)
-
                 elif self.cv2_cam:
                     ret, frame = self.cv2_cam.read()
 
@@ -234,10 +301,15 @@ class AffectiveModulePi:
         self.update_display()
 
     def exit_sequence(self):
-        # post-loop completion section
-        # maybe add short thank you for completing the section?
+        """
+        Run FER classification on captured data and store per-question labels.
 
-        # only OPTIONAL and can leave blank
+        In auto_run mode, generates synthetic random predictions. Otherwise,
+        loads the Keras FER model and runs inference on the saved image datasets.
+        Results are stored in self.label_data and written to
+        data/affective_predictions.json. Captured files are removed if
+        cleanse_files is True.
+        """
         if self.classify:
             fer_class_labels = ["Negative", "Neutral", "Positive"]
             if self.auto_run:
@@ -245,13 +317,10 @@ class AffectiveModulePi:
                 mood = random.choices([0, 1, 2], weights=(2, 1, 2), k=1)
 
                 for q_idx in range(self.question_count):
-
-                    predictions = np.random.normal(1, 5, (100, 3))  # random set of predictions
-                    predictions[:, mood] *= 10  # specify mood to highlight
+                    predictions = np.random.normal(1, 5, (100, 3))
+                    predictions[:, mood] *= 10
 
                     fer_labels = np.argmax(predictions, axis=1)
-                    # affective_data["predictions"] = 100 * softmax(predictions, axis=1)
-
                     unique, counts = np.unique(fer_labels, return_counts=True)
                     label = "Test label"
 
@@ -261,28 +330,19 @@ class AffectiveModulePi:
                     }
 
                 self.label_data = label_data
-
                 return
 
-            if self.pi:
-                base_path = "/home/pi/hero-monitor"
-            else:
-                base_path = "/Users/benhoskings/Documents/Pycharm/Hero_Monitor"
             label_data = {}
 
             try:
                 affective_model = keras.models.load_model("models/AffectInceptionResNetV3.keras")
-                nlp_model = NLP()
-
-            except:
-                print("models field to load")
+            except Exception:
+                print("models failed to load")
 
             image_shape = (224, 224, 3)
             for q_idx in range(self.question_idx):
-                question_data = {}
                 affective_data = {}
-                image_directory = os.path.join(base_path, f"data/affective_images/question_{q_idx}")
-                audio_path = os.path.join(base_path, f"data/nlp_audio/question_{q_idx}.wav")
+                image_directory = f"data/affective_images/question_{q_idx}"
 
                 image_ds = keras.utils.image_dataset_from_directory(
                     directory=image_directory,
@@ -294,29 +354,30 @@ class AffectiveModulePi:
 
                 predictions = affective_model.predict(image_ds)
                 fer_labels = np.argmax(predictions, axis=1)
-                # affective_data["predictions"] = 100 * softmax(predictions, axis=1)
 
                 unique, counts = np.unique(fer_labels, return_counts=True)
                 affective_data["label_counts"] = dict(zip(unique, counts))
 
-                label = nlp_model.classify_audio(audio_path)
-
-                label_data[f"question_{q_idx}"] = {"affective_data": affective_data, "nlp_label": label}
-                # except:
-                #     label_data[f"question_{q_idx}"] = None
+                label_data[f"question_{q_idx}"] = {"affective_data": affective_data}
 
             self.label_data = label_data
 
             with open("data/affective_predictions.json", "w") as write_file:
-                json.dump(label_data, write_file, cls=NpEncoder, indent=4)  # encode dict into JSON
+                json.dump(label_data, write_file, cls=NpEncoder, indent=4)
 
         if self.cleanse_files:
             print("cleansing files")
             shutil.rmtree("data/affective_images")
             shutil.rmtree("data/nlp_audio")
-            print(f"successfully cleansed files")
+            print("successfully cleansed files")
 
     def loop(self):
+        """
+        Main event loop — called by the orchestrator.
+
+        Waits for the patient to press the Begin button, runs question_loop()
+        for each question, then hands control back on completion.
+        """
         self.entry_sequence()
         while self.running:
             if self.auto_run:
@@ -335,7 +396,6 @@ class AffectiveModulePi:
                             self.running = False
 
                     elif event.type == pg.MOUSEBUTTONDOWN:
-                        # do something with mouse click
                         if self.parent:
                             pos = self.parent.get_relative_mose_pos()
                         else:
@@ -351,10 +411,7 @@ class AffectiveModulePi:
                                     self.running = False
                                     print("quitting")
 
-                            # self.update_display()
-
                     elif event.type == pg.QUIT:
-                        # break the running loop
                         self.running = False
 
         self.exit_sequence()

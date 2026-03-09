@@ -1,11 +1,9 @@
 """
-Consultation Orchestrator - Main consultation flow controller
+Consultation orchestrator — main consultation flow controller.
 
-Manages the complete patient assessment workflow including:
-- User authentication
-- Cognitive test battery
-- Affective computing
-- Data collection and storage
+Manages the complete patient assessment workflow including user
+authentication, cognitive test battery, affective computing, and
+data collection and storage.
 """
 
 import datetime
@@ -22,26 +20,27 @@ logger = logging.getLogger(__name__)
 
 import gtts
 import numpy as np
+import pandas as pd
 import pygame as pg
 
 # Hero imports
-from consultation.config import ConsultConfig
-from consultation.avatar import Avatar
-from consultation.display_screen import DisplayScreen
-from consultation.touch_screen import TouchScreen, GameObjects, GameButton
-from consultation.utils import take_screenshot, NpEncoder, Buttons, ButtonModule
-from consultation.screen import Colours, Fonts
+from hero.consultation.config import ConsultConfig
+from hero.consultation.avatar import Avatar
+from hero.consultation.display_screen import DisplayScreen
+from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
+from hero.consultation.utils import take_screenshot, NpEncoder, Buttons, ButtonModule
+from hero.consultation.screen import Colours, Fonts
 
 # Cognitive test imports
-from cognitive_tests.shape_searcher import ShapeSearcher
-from cognitive_tests.spiral_test import SpiralTest
-from cognitive_tests.memory_game import MemoryGame
-from cognitive_tests.trail_making_test import TrailMakingTest
-from consultation.login_screen import LoginScreen
+from hero.cognitive_tests.shape_searcher import ShapeSearcher
+from hero.cognitive_tests.spiral_test import SpiralTest
+from hero.cognitive_tests.memory_game import MemoryGame
+from hero.cognitive_tests.trail_making_test import TrailMakingTest
+from hero.consultation.login_screen import LoginScreen
 
 # Affective computing
 try:
-    from affective_computing.affective_computing_pi import AffectiveModulePi
+    from hero.affective_computing.affective_computing_pi import AffectiveModulePi
     AFFECTIVE_AVAILABLE = True
 except ImportError as e:
     print(f"⚠ Warning: Affective computing not available: {e}")
@@ -57,9 +56,24 @@ except ImportError:
 
 
 class User:
-    """Patient user model."""
+    """
+    Patient user model populated after successful authentication.
+
+    Attributes:
+        id: Unique user identifier from the database.
+        name: Patient display name.
+        age: Patient age (may be None).
+    """
 
     def __init__(self, name, age, user_id):
+        """
+        Initialise a User.
+
+        Args:
+            name: Patient display name.
+            age: Patient age, or None if unknown.
+            user_id: Unique user identifier from the database.
+        """
         self.id = user_id
         self.name = name
         self.age = age
@@ -70,29 +84,64 @@ class Consultation:
     Main consultation orchestrator.
 
     Manages the complete assessment workflow including authentication,
-    cognitive tests, affective computing, and data storage.
+    cognitive tests, affective computing, and data storage. Instantiates
+    all game modules, owns the dual-screen pygame window, and drives the
+    module_order sequence in loop().
+
+    Attributes:
+        authenticate_user: Whether user login is required before tests.
+        user: Authenticated User instance, set after login.
+        config: ConsultConfig instance controlling speech and language.
+        auto_run: If True, all modules run with synthetic inputs.
+        seamless: If True, modules advance automatically without a Start button.
+        pi: If True, GPIO and Pi-specific display options are enabled.
+        local: If True, a JSON backup of results is written to disk.
+        db: HeroDB instance for PostgreSQL integration.
+        session_id: UUID of the active database session.
+        clock: CentralClock instance for synchronised timestamps.
+        on_session_start: Optional callback invoked with session_id after login.
+        display_size: Vector2 dimensions of one physical screen.
+        window: Combined pygame Surface spanning both physical screens.
+        top_screen: Subsurface for the upper physical screen.
+        bottom_screen: Subsurface for the lower physical screen.
+        display_screen: DisplayScreen for the upper screen.
+        touch_screen: TouchScreen for the lower screen.
+        avatar: Avatar instance shared across all modules.
+        button_module: ButtonModule for hardware button input.
+        modules: Dict mapping module names to game instances.
+        module_order: Ordered list of module names to run.
+        module_idx: Index of the current module in non-seamless mode.
+        running: Main loop control flag.
+        id: Unique consultation identifier string.
+        date: Consultation date.
     """
 
     def __init__(self, enable_speech=True, scale=1, pi=True, authenticate=True,
                  seamless=True, username=None, password=None, consult_date=None,
-                 auto_run=False,local=True, db=None, clock=None, on_session_start=None):
+                 auto_run=False, wct_turns=20, pss_questions=10, db_client=None,
+                 local=True, db=None, clock=None, on_session_start=None):
         """
-        Initialize Consultation.
+        Initialise the consultation, pygame window, and all game modules.
 
         Args:
-            enable_speech: Enable text-to-speech
-            scale: Display scale factor
-            pi: Running on Raspberry Pi
-            authenticate: Require user login
-            seamless: Auto-advance through tests
-            username: Pre-filled username (for testing)
-            password: Pre-filled password (for testing)
-            consult_date: Override consultation date
-            auto_run: Automatically run tests (for testing)
-            local: Save locally as JSON backup
-            db: HeroDB instance for PostgreSQL integration
-            clock: CentralClock instance for synchronized timestamps
-                   (shared with SensorCoordinator so all data is on the same clock)
+            enable_speech: If True, text-to-speech is active during the session.
+            scale: Display scale factor applied to the 1024×600 base resolution.
+            pi: If True, enable Raspberry Pi display and GPIO options.
+            authenticate: If True, require user login before running tests.
+            seamless: If True, modules advance automatically without a Start button.
+            username: Pre-filled username string for testing/auto_run.
+            password: Pre-filled password string for testing/auto_run.
+            consult_date: Override the consultation date. Defaults to today.
+            auto_run: If True, all modules use synthetic inputs and skip UI waits.
+            wct_turns: Legacy parameter, unused.
+            pss_questions: Legacy parameter, unused.
+            db_client: Legacy parameter, unused.
+            local: If True, save a JSON backup of results to disk after completion.
+            db: HeroDB instance for PostgreSQL session and result storage.
+            clock: CentralClock instance shared with SensorCoordinator for
+                   synchronised timestamps across sensor and game data.
+            on_session_start: Optional callable invoked with session_id immediately
+                              after the database session is created post-login.
         """
         # User authentication
         self.authenticate_user = authenticate
@@ -129,6 +178,13 @@ class Consultation:
             pg.font.init()
 
         self.fonts = Fonts()
+
+        # Load user data (CSV fallback for login)
+        if os.path.exists("data/user_data.csv"):
+            self.all_user_data = pd.read_csv("data/user_data.csv")
+            self.all_user_data = self.all_user_data.set_index("Username")
+        else:
+            self.all_user_data = None
 
         # Initialize pygame window — spans both physical screens (1024x1200)
         os.environ['SDL_VIDEO_WINDOW_POS'] = "1029,600"
@@ -235,26 +291,28 @@ class Consultation:
         if pi:
             pg.mouse.set_visible(False)
 
-    # ------------------------------------------------------------------
-    # Timestamp helper — uses central clock if available
-    # ------------------------------------------------------------------
-
     def now(self):
         """
-        Get current timestamp.
-        Uses CentralClock if provided (shared with sensors),
-        otherwise falls back to system clock.
+        Return the current timestamp.
+
+        Uses the CentralClock if one was provided at initialisation so that
+        game timestamps are aligned with sensor data. Falls back to the system
+        UTC clock otherwise.
+
+        Returns:
+            datetime.datetime instance in UTC.
         """
         if self.clock:
             return self.clock.now()
         return datetime.datetime.now(timezone.utc)
 
-    # ------------------------------------------------------------------
-    # Utilities
-    # ------------------------------------------------------------------
-
     def generate_unique_id(self):
-        """Generate unique consultation ID."""
+        """
+        Generate a unique alphanumeric consultation identifier.
+
+        Returns:
+            15-character string of randomly interleaved lowercase letters and digits.
+        """
         letters = pd.Series(list(string.ascii_lowercase))[
                       np.random.permutation(26)
                   ][:10].values
@@ -267,7 +325,15 @@ class Consultation:
         return "".join(str(elem) for elem in letters)
 
     def update_display(self, display_screen=None, touch_screen=None):
-        """Update display with current screen states."""
+        """
+        Blit both screens to the physical display.
+
+        Args:
+            display_screen: DisplayScreen to blit to the upper screen.
+                Defaults to self.display_screen.
+            touch_screen: TouchScreen to blit to the lower screen.
+                Defaults to self.touch_screen.
+        """
         if display_screen is None:
             display_screen = self.display_screen
         if touch_screen is None:
@@ -279,13 +345,17 @@ class Consultation:
 
     def speak_text(self, text, visual=True, display_screen=None, touch_screen=None):
         """
-        Speak text using text-to-speech with avatar animation.
+        Speak text aloud using gTTS and animate the avatar's mouth.
+
+        No-ops in auto_run mode or when speech is disabled in ConsultConfig.
 
         Args:
-            text: Text to speak
-            visual: Show avatar mouth animation
-            display_screen: Display screen to update
-            touch_screen: Touch screen to update
+            text: String to synthesise and speak.
+            visual: If True, animate the avatar's mouth to match phonemes.
+            display_screen: DisplayScreen to update during speech animation.
+                Defaults to self.display_screen.
+            touch_screen: TouchScreen to update during speech animation.
+                Defaults to self.touch_screen.
         """
         if self.auto_run:
             return
@@ -328,7 +398,17 @@ class Consultation:
             self.update_display(display_screen, touch_screen)
 
     def _text_to_mouth_ids(self, text):
-        """Convert text to phonetic mouth animation IDs."""
+        """
+        Convert a text string into a sequence of mouth animation frame indices.
+
+        Maps phoneme groups to integer mouth shape IDs (0–11) used by Avatar.
+
+        Args:
+            text: Input string to convert.
+
+        Returns:
+            List of integer mouth frame indices.
+        """
         text_index = text.lower()
         text_index = text_index.replace("?", "").replace("!", "")
         text_index = text_index.replace("\u201c", "").replace("\u201d", "")
@@ -363,15 +443,25 @@ class Consultation:
         return mouth_ids
 
     def get_relative_mose_pos(self):
-        """Get mouse position relative to bottom screen."""
+        """
+        Return the current mouse position in bottom-screen coordinates.
+
+        Returns:
+            pg.Vector2 with the mouse position offset by the upper screen height.
+        """
         return pg.Vector2(pg.mouse.get_pos()) - pg.Vector2(0, self.display_size.y)
 
     def take_screenshot(self, filename=None):
-        """Take screenshot of current display."""
+        """
+        Save a PNG screenshot of the full window to disk.
+
+        No-ops silently if cv2 is not available.
+
+        Args:
+            filename: Output filename without extension. Defaults to current datetime.
+        """
         if not CV2_AVAILABLE:
-
             return
-
 
         img_array = pg.surfarray.array3d(self.window)
         img_array = cv2.transpose(img_array)
@@ -383,12 +473,13 @@ class Consultation:
         os.makedirs("screenshots", exist_ok=True)
         cv2.imwrite(f"screenshots/{filename}.png", img_array)
 
-    # ------------------------------------------------------------------
-    # DB helpers
-    # ------------------------------------------------------------------
-
     def _start_db_session(self):
-        """Create a session in the DB once the user is known."""
+        """
+        Create a database session record once the user has logged in.
+
+        Sets self.session_id and invokes on_session_start if provided.
+        No-ops if db or user is not set.
+        """
         if not self.db or not self.user:
             return
         try:
@@ -403,7 +494,19 @@ class Consultation:
             print(f"⚠ Could not start DB session: {e}")
 
     def _save_game_to_db(self, module_name, game_number, started_at, completed_at):
-        """Save a single game result to the DB."""
+        """
+        Persist a completed game result to the database.
+
+        Extracts per-game metrics from the module's results dict and calls
+        db.save_game_result(). No-ops if db or session_id is not set, or if
+        module_name is 'Login'.
+
+        Args:
+            module_name: Key into self.modules for the completed game.
+            game_number: Sequential index of this game in the run order.
+            started_at: datetime when the game began.
+            completed_at: datetime when the game ended.
+        """
         if not self.db or not self.session_id:
             return
         if module_name == "Login":
@@ -412,7 +515,6 @@ class Consultation:
         module = self.modules[module_name]
         results = getattr(module, 'results', {}) or {}
 
-        # Per-game field mappings — each game now has a consistent results dict
         if module_name == "Spiral":
             final_score     = None
             max_score       = None
@@ -475,9 +577,18 @@ class Consultation:
         except Exception as e:
             logger.warning(f"Error: {e}")
 
-    
     def _log_game_event(self, module_name, game_number, event_type, timestamp):
-        """Log a game_start or game_end event."""
+        """
+        Log a game_start or game_end event to the database.
+
+        No-ops if db or session_id is not set, or if module_name is 'Login'.
+
+        Args:
+            module_name: Key into self.modules for the game being logged.
+            game_number: Sequential index of this game in the run order.
+            event_type: Event type string, e.g. 'game_start' or 'game_end'.
+            timestamp: datetime of the event.
+        """
         if not self.db or not self.session_id:
             return
         if module_name == "Login":
@@ -494,16 +605,16 @@ class Consultation:
         except Exception as e:
             logger.warning(f"Error: {e}")
 
-    
     def _run_eye_tracking_calibration(self):
         """
         Run 9-point eye tracking calibration after login.
-        Saves polynomial model coefficients to DB for use by the sensor pipeline.
-        Shows a simple status screen on the pygame display before/after.
-        Skips gracefully if camera not available.
+
+        Instantiates EyeTrackingCalibrator, iconifies the pygame window to
+        yield the display to the calibration OpenCV window, then restores
+        the pygame window on completion. Calibration coefficients are saved
+        to the database if the run succeeds. Skips gracefully on any error.
         """
         if not self.session_id:
-
             return
 
         # Show "calibrating..." screen
@@ -556,19 +667,26 @@ class Consultation:
             self.display_screen.instruction = "Calibration complete — starting tests"
             self.update_display()
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
     def entry_sequence(self):
-        """Initial consultation setup."""
+        """
+        Set up the initial consultation display.
+
+        In non-seamless mode, renders a Start button and waits for the
+        clinician to begin the session.
+        """
         if not self.seamless:
             self.touch_screen.sprites = GameObjects([self.quit_button, self.main_button])
             self.display_screen.instruction = "Click the button to start"
             self.update_display()
 
     def exit_sequence(self):
-        """Finalize consultation and save data."""
+        """
+        Finalise the consultation, save results, and end the database session.
+
+        Speaks a closing message, shows the power-off splash, waits for a
+        screen interaction, runs affective exit if available, saves a local
+        JSON backup, ends the DB session, and cleans up temp audio files.
+        """
         self.speak_text("The consultation is now complete. Thank you for your time")
 
         self.display_screen.power_off = True
@@ -604,10 +722,13 @@ class Consultation:
         except Exception:
             pass
 
-
-
     def _compile_results(self):
-        """Compile all test results into output format."""
+        """
+        Gather results from all test modules into a single output dict.
+
+        Returns:
+            Dict with consultation metadata and per-game result dicts.
+        """
         spiral_data  = getattr(self.modules["Spiral"], 'results', {})
         trail_data   = getattr(self.modules["Trail"],  'results', {})
         shape_data   = getattr(self.modules["Shapes"], 'results', {})
@@ -628,7 +749,15 @@ class Consultation:
         }
 
     def _save_results_local(self, results):
-        """Save consultation results to local JSON."""
+        """
+        Write the compiled results dict to a JSON file on disk.
+
+        Creates the directory structure data/consult_records/user_{id}/ if
+        needed. No-ops if self.user is not set.
+
+        Args:
+            results: Dict returned by _compile_results().
+        """
         self.output = results
 
         if not self.user:
@@ -646,18 +775,16 @@ class Consultation:
         with open(consult_path, "w") as f:
             json.dump(self.output, f, cls=NpEncoder, indent=4)
 
-
-
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
-
     def loop(self, infinite=False):
         """
-        Main consultation loop.
+        Main consultation loop — drives the module sequence.
+
+        In seamless mode, iterates through module_order automatically. In
+        non-seamless mode, waits for a Start button tap between each module.
+        Calls exit_sequence() on completion.
 
         Args:
-            infinite: Loop through tests indefinitely (for demos)
+            infinite: If True, cycle through modules indefinitely (for demos).
         """
         self.entry_sequence()
 

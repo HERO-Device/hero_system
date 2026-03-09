@@ -1,4 +1,9 @@
-import os
+"""
+Top-screen display surface for the HERO consultation system.
+
+Renders the avatar, speech bubble, instruction bar, and background
+onto the upper physical screen during patient consultations.
+"""
 
 import pygame as pg
 
@@ -7,9 +12,34 @@ from consultation.screen import Screen, BlitLocation, Colours
 
 
 class DisplayScreen(Screen):
+    """
+    Upper consultation screen showing the avatar and session instructions.
+
+    Extends Screen with a fixed layout: HERO background and logo on the base
+    layer, a hero_blue instruction bar at the bottom, and an avatar that
+    repositions based on state. A speech bubble is rendered when speech_text
+    is set. A power-off surface replaces the display when power_off is True.
+
+    Attributes:
+        avatar: Avatar instance used for mouth animation during speech.
+        instruction: Text string rendered in the info bar. None hides the bar.
+        speech_text: Text rendered in the speech bubble. None hides the bubble.
+        speech_textbox: pg.Rect defining the speech bubble area.
+        info_textbox: pg.Rect defining the bottom instruction bar area.
+        state: Avatar position mode (0 = centre, 1 = left).
+        power_off: If True, get_surface() returns the power-off splash screen.
+    """
+
     def __init__(self, size, info_height=0.2, avatar=None):
+        """
+        Initialise the display screen and bake the static background into the base layer.
+
+        Args:
+            size: Tuple or Vector2 (width, height) of the display area.
+            info_height: Fraction of screen height reserved for the instruction bar.
+            avatar: Optional Avatar instance. A new one is created if not provided.
+        """
         super().__init__(size, colour=Colours.white)
-        # make the base background
         if avatar:
             self.avatar = avatar
         else:
@@ -19,14 +49,14 @@ class DisplayScreen(Screen):
         self.speech_text = None
         self.speech_textbox = pg.Rect(0.44*self.size.x, 0.05*self.size.y, 0.5*self.size.x, 0.65*self.size.y)
         self.info_textbox = pg.Rect(0, (1-info_height)*self.size.y, self.size.x, info_height*self.size.y)
-        self.load_image("consultation/resources/graphics/backgrounds/background.png", fill=True, base=True, pos=(0, 0))
-        self.load_image("consultation/resources/graphics/logo.png", size=(38*3, 53*600/256), pos=(262*3, 52*600/256), base=True)
+        self.load_image("hero/consultation/resources/graphics/backgrounds/background.png", fill=True, base=True, pos=(0, 0))
+        self.load_image("hero/consultation/resources/graphics/logo.png", size=(38*3, 53*600/256), pos=(262*3, 52*600/256), base=True)
         pg.draw.rect(self.base_surface, Colours.hero_blue.value, self.info_textbox)
 
         self.power_off_surface = pg.Surface((self.size.x, self.size.y), pg.SRCALPHA)
         self.power_off_surface.fill(Colours.white.value)
 
-        image = pg.image.load("consultation/resources/graphics/hero_text.png")
+        image = pg.image.load("hero/consultation/resources/graphics/hero_text.png")
         pos = self.size/2
 
         imageRect = pg.Rect(pos, image.get_size())
@@ -37,6 +67,15 @@ class DisplayScreen(Screen):
         self.power_off = False
 
     def get_surface(self):
+        """
+        Composite the display into a single surface for blitting to the screen.
+
+        Renders the instruction bar, avatar, and speech bubble onto the dynamic
+        layer before compositing base + surface + sprite layers.
+
+        Returns:
+            pg.Surface ready to blit to the top physical screen.
+        """
         if self.power_off:
             return self.power_off_surface
 

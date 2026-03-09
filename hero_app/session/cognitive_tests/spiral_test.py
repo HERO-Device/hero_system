@@ -1,19 +1,45 @@
+"""
+Spiral Drawing Test — cognitive assessment game.
+
+Patients trace an Archimedean spiral displayed on the touchscreen.
+Drawing data is augmented with polar coordinates and fed to a pre-trained
+linear regression model to produce a classification score. Used as a
+motor and cognitive biomarker within the HERO consultation.
+"""
+
 import numpy as np
 import pygame as pg
 import pandas as pd
 import os
 import time
-import matplotlib.pyplot as plt
 import joblib
 
-from consultation.touch_screen import TouchScreen, GameObjects
-from consultation.screen import Colours, BlitLocation
-from consultation.display_screen import DisplayScreen
+from hero.consultation.touch_screen import TouchScreen, GameObjects
+from hero.consultation.screen import Colours, BlitLocation
+from hero.consultation.display_screen import DisplayScreen
 
-from consultation.utils import take_screenshot, Buttons, ButtonModule
+from hero.consultation.utils import take_screenshot, Buttons, ButtonModule
 
 
 def augment_data(input_data, spiral_radius, invert_y=False, time_unit="seconds"):
+    """
+    Augment raw spiral trace data with polar and kinematic features.
+
+    Converts pixel-space positions to normalised coordinates centred on the
+    spiral origin, then computes magnitude, cumulative distance, turn count,
+    angle (theta), angular velocity, and a radial error term.
+
+    Args:
+        input_data: DataFrame with columns ['x_pos', 'y_pos', 'time'].
+        spiral_radius: Radius in pixels used to normalise x/y to [-1, 1].
+        invert_y: If True, flip the y-axis (used when origin is bottom-left).
+        time_unit: 'seconds' leaves time unchanged; any other value converts
+                   from milliseconds by subtracting the min and dividing by 1000.
+
+    Returns:
+        DataFrame with columns ['x_pos', 'y_pos', 'time', 'magnitude',
+        'distance', 'turns', 'theta', 'angular_velocity', 'error'].
+    """
     if invert_y:
         data_aug = input_data.assign(
             x_pos=(input_data["x_pos"] - spiral_radius) / spiral_radius,
@@ -43,7 +69,7 @@ def augment_data(input_data, spiral_radius, invert_y=False, time_unit="seconds")
         if row_idx > 0:
             prev_pos = data_aug.loc[row_idx - 1, ["x_pos", "y_pos"]].values
             if pos[0] > 0 and prev_pos[0] > 0 and prev_pos[1] >= 0 > pos[1]:
-                turn_count -= 1  # anit-clockwise crossing of positive x-axis
+                turn_count -= 1  # anti-clockwise crossing of positive x-axis
             elif pos[0] > 0 and prev_pos[0] > prev_pos[1] <= 0 < pos[1]:
                 turn_count += 1  # clockwise crossing of positive x-axis
             turns = np.append(turns, turn_count)
@@ -72,11 +98,67 @@ def augment_data(input_data, spiral_radius, invert_y=False, time_unit="seconds")
 
 
 def create_feature(spiral_data):
+    """
+    Compute the per-column mean of augmented spiral data as a feature vector.
+
+    Args:
+        spiral_data: DataFrame or array of augmented spiral features.
+
+    Returns:
+        1D array of column means.
+    """
     return np.mean(spiral_data, axis=0)
 
 
 class SpiralTest:
+    """
+    Spiral tracing test game.
+
+    Renders an Archimedean spiral on the touchscreen and records the patient's
+    stylus trace. On completion, augments the trace, extracts features, and
+    classifies using a pre-trained joblib model.
+
+    Attributes:
+        parent: Parent Consultation instance, or None in standalone mode.
+        display_size: Vector2 dimensions of the display area.
+        display_screen: DisplayScreen for the upper screen.
+        touch_screen: TouchScreen for the lower screen.
+        button_module: ButtonModule for hardware button input.
+        spiral_size: Vector2 bounding dimensions of the spiral.
+        spiral_offset: Vector2 pixel offset from the top-left to the spiral area.
+        center_offset: Vector2 centre of the display.
+        target_coords: Numpy array of spiral waypoint pixel coordinates.
+        theta_vals: Angular values used to generate the spiral.
+        plot_data: DataFrame of spiral geometry used for validation.
+        coord_idx: Index of the last matched spiral waypoint.
+        mouse_down: True while the stylus is in contact with the screen.
+        tracking_data: DataFrame accumulating ['x_pos', 'y_pos', 'time'] rows.
+        start_time: monotonic timestamp of the first touch event.
+        spiral_started: True after the first touch is registered.
+        spiral_finished: True after the final spiral waypoint is reached.
+        prev_pos: Previous stylus position as a Vector2.
+        prediction_model: Loaded joblib regression model.
+        prediction: Raw model output value.
+        classification: Boolean classification from the prediction threshold.
+        draw_trace: If True, draw a blue trace line during recording.
+        auto_run: If True, simulate a trace with synthetic noise.
+        show_info: Whether the info overlay is currently visible.
+        power_off: If True, show the power-off splash screen.
+        results: Dict populated by exit_sequence with classification outputs.
+    """
+
     def __init__(self, turns, size=(1024, 600), spiral_size=400, parent=None, draw_trace=False, auto_run=False):
+        """
+        Initialise the spiral test and render the target spiral to the base surface.
+
+        Args:
+            turns: Number of turns in the Archimedean spiral.
+            size: Tuple (width, height) used in standalone mode without a parent.
+            spiral_size: Pixel side length of the bounding square for the spiral.
+            parent: Parent Consultation instance. If provided, screens are shared.
+            draw_trace: If True, draw a blue trace line as the patient draws.
+            auto_run: If True, simulate a trace automatically (for testing).
+        """
         self.parent = parent
         if parent is not None:
             self.display_size = parent.display_size
@@ -122,7 +204,7 @@ class SpiralTest:
         self.prev_pos = None
         self.turns = 0
 
-        self.prediction_model = joblib.load("affective_computing/models/linear_regression_model.joblib")
+        self.prediction_model = joblib.load("models/linear_regression_model.joblib")
 
         self.prediction, self.classification = None, None
         self.draw_trace = draw_trace
@@ -132,6 +214,13 @@ class SpiralTest:
         self.results = {}
 
     def update_display(self, top=True):
+        """
+        Blit the current screen state to the physical displays.
+
+        Args:
+            top: If True, refresh both screens. If False, only refresh the
+                 bottom screen base surface (used during fast trace drawing).
+        """
         if top:
             self.top_screen.blit(self.display_screen.get_surface(), (0, 0))
             self.bottom_screen.blit(self.touch_screen.get_surface(), (0, 0))
@@ -140,6 +229,17 @@ class SpiralTest:
         pg.display.flip()
 
     def get_closest_coord_2(self, pos):
+        """
+        Find the spiral waypoint closest to a given screen position.
+
+        Args:
+            pos: Numpy array [x, y] in bottom-screen pixel coordinates.
+
+        Returns:
+            Tuple of (closest_idx, close_coord, min_distance) where closest_idx
+            is the integer index into target_coords, close_coord is the [x, y]
+            waypoint, and min_distance is the Euclidean distance in pixels.
+        """
         distances = np.linalg.norm(self.target_coords - pos, axis=1)
         closest_idx = np.where(distances == min(distances))[0]
         if len(closest_idx) > 1:
@@ -152,6 +252,18 @@ class SpiralTest:
         return closest_idx, close_coord, min(distances)
 
     def load_surface(self, size=(580, 580), turns=3, clockwise=True):
+        """
+        Generate spiral waypoints and draw the spiral onto the base surface.
+
+        Computes an Archimedean spiral using a square-root theta parameterisation
+        for uniform angular spacing. The resulting polyline is drawn to the
+        TouchScreen base surface and stored in target_coords.
+
+        Args:
+            size: Tuple or Vector2 (width, height) of the spiral bounding area.
+            turns: Number of turns in the spiral.
+            clockwise: Unused; reserved for direction control.
+        """
         n = 500
         b = 0.5 / (2 * np.pi)
         theta = np.sqrt(np.linspace(0, (2 * np.pi) ** 2, n))
@@ -180,11 +292,19 @@ class SpiralTest:
         self.target_coords = points
 
     def create_dataframe(self):
+        """
+        Build a DataFrame from the recorded spiral trace.
+
+        Returns:
+            Tuple of (DataFrame, spiral_size) where the DataFrame has columns
+            ['pixel_x', 'pixel_y', 'rel_pos_x', 'rel_pos_y', 'theta', 'error', 'time'].
+        """
         return pd.DataFrame(data=self.spiral_data.transpose(),
                             columns=["pixel_x", "pixel_y", "rel_pos_x", "rel_pos_y", "theta", "error",
                                      "time"]), self.spiral_size
 
     def entry_sequence(self):
+        """Show the spiral and speak the start instruction."""
         self.update_display()
         if self.parent:
 
@@ -196,6 +316,13 @@ class SpiralTest:
                 pg.mouse.set_visible(True)
 
     def exit_sequence(self):
+        """
+        Augment the trace, run the regression model, and populate self.results.
+
+        In auto_run mode, generates a synthetic prediction. Otherwise, augments
+        tracking_data, extracts features, runs the prediction model, and saves
+        the raw trace CSV alongside computed features.
+        """
         if self.auto_run:
             self.prediction = np.random.normal(-0.5, 1.5)
             self.classification = self.prediction > 0.5
@@ -219,7 +346,6 @@ class SpiralTest:
         try:
             prediction = self.prediction_model.predict(spiral_features.values.reshape(1, -1))
         except ValueError:
-
             prediction = [0]
 
         self.prediction = prediction[0]
@@ -247,7 +373,6 @@ class SpiralTest:
         except Exception as e:
             pass
 
-
         # Mean of each augmented feature for DB storage
         augmented_features = None
         try:
@@ -265,6 +390,16 @@ class SpiralTest:
         }
 
     def process_input(self, pos):
+        """
+        Record a stylus position, advance the progress marker, and redraw.
+
+        Appends the normalised position and elapsed time to tracking_data.
+        Highlights completed spiral segments in red when the stylus moves
+        forward along the path.
+
+        Args:
+            pos: pg.Vector2 in bottom-screen pixel coordinates.
+        """
         start = time.monotonic()
         idx, _, _ = self.get_closest_coord_2(np.array(pos))
         self.tracking_data.loc[self.tracking_data.shape[0]] = [*(pos - self.spiral_offset),
@@ -295,6 +430,12 @@ class SpiralTest:
             self.update_display(top=False)
 
     def button_actions(self, selected):
+        """
+        Handle hardware button presses during the spiral test.
+
+        Args:
+            selected: Buttons enum member for the pressed button.
+        """
         if selected == Buttons.info and not self.power_off:
             self.show_info = not self.show_info
             self.toggle_info_screen()
@@ -313,8 +454,8 @@ class SpiralTest:
         else:
             ...
 
-
     def toggle_info_screen(self):
+        """Toggle the instruction overlay on the upper display."""
         if self.show_info:
             self.display_screen.state = 1
             self.display_screen.instruction = None
@@ -341,6 +482,12 @@ class SpiralTest:
             self.update_display(top=True)
 
     def loop(self):
+        """
+        Main event loop — called by the orchestrator.
+
+        In auto_run mode, generates a synthetic stylus path and exits. In
+        normal mode, handles mouse/stylus events and hardware button presses.
+        """
         self.entry_sequence()
         while self.running:
             if self.auto_run:
@@ -409,16 +556,3 @@ class SpiralTest:
                     self.button_actions(selected)
 
         self.exit_sequence()
-
-
-if __name__ == "__main__":
-    os.chdir("../..")
-
-    pg.init()
-    pg.event.pump()
-
-    spiral_test = SpiralTest(turns=3, draw_trace=True, auto_run=True, spiral_size=600)
-
-    spiral_test.loop()
-    print(spiral_test.classification, spiral_test.prediction)
-    

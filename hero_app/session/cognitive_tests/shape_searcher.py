@@ -1,4 +1,13 @@
-import os
+"""
+Shape Searcher — visual perception and working memory assessment game.
+
+Patients compare sets of coloured shapes displayed on the touchscreen,
+pressing 'Same' or 'Different' to record their judgement. Three question
+types of increasing difficulty are used: perception (both sets visible),
+shape binding (working memory, shape only), and colour binding
+(working memory, shape + colour).
+"""
+
 import random
 import time
 
@@ -6,10 +15,10 @@ import numpy as np
 import pandas as pd
 import pygame as pg
 
-from consultation.display_screen import DisplayScreen
-from consultation.screen import Colours
-from consultation.touch_screen import TouchScreen, GameObjects, GameButton
-from consultation.utils import take_screenshot, Buttons, ButtonModule
+from hero.consultation.display_screen import DisplayScreen
+from hero.consultation.screen import Colours
+from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
+from hero.consultation.utils import take_screenshot, Buttons, ButtonModule
 
 rocket = [(4, 0), (8, 4), (5, 8), (4, 5), (3, 8), (0, 4)]
 lightning_1 = [(5, 0), (5, 3), (8, 3), (3, 8), (3, 5), (0, 5)]
@@ -27,7 +36,24 @@ shape_colours = [Colours.red, Colours.blue, Colours.green, Colours.yellow, Colou
 
 
 class Circle(pg.sprite.Sprite):
+    """
+    A circular target sprite used in the speed sub-task.
+
+    Attributes:
+        object_type: Always 'circle', used by GameObjects.draw() for dispatch.
+        image: Pygame Surface with the filled circle.
+        rect: pg.Rect defining the sprite's position and bounding box.
+    """
+
     def __init__(self, position, size, colour):
+        """
+        Initialise a Circle sprite.
+
+        Args:
+            position: (x, y) top-left position of the bounding square.
+            size: Diameter of the circle in pixels.
+            colour: Colours enum value for the circle fill.
+        """
         super().__init__()
         self.object_type = "circle"
         surf_size = pg.Vector2(size, size)
@@ -36,16 +62,42 @@ class Circle(pg.sprite.Sprite):
         self.rect = pg.Rect(position, surf_size)
 
     def is_clicked(self, pos):
+        """
+        Test whether a position falls within the bounding rectangle.
+
+        Args:
+            pos: (x, y) position to test.
+
+        Returns:
+            True if pos is within the bounding rect, False otherwise.
+        """
         if self.rect.collidepoint(pos):
             return True
         else:
             return False
 
     def click_return(self):
+        """
+        Return value when the circle is clicked.
+
+        Returns:
+            True, indicating the circle was tapped.
+        """
         return True
 
 
 def create_shape_surf(name, scale, colour):
+    """
+    Render a named shape polygon to a Surface.
+
+    Args:
+        name: Key into the shapes dict (e.g. 'rocket', 'gem').
+        scale: Pixel scale factor applied to the 8×8 unit shape grid.
+        colour: Colours enum value for the polygon fill.
+
+    Returns:
+        pg.Surface containing the rendered shape.
+    """
     shape_surf = pg.Surface((8 * scale, 8 * scale), pg.SRCALPHA)
     shape_coords = [(coord[0] * scale, coord[1] * scale) for coord in shapes[name]]
     pg.draw.polygon(shape_surf, colour.value, shape_coords)
@@ -53,7 +105,45 @@ def create_shape_surf(name, scale, colour):
 
 
 class ShapeSearcher:
+    """
+    Visual shape matching game for the HERO consultation system.
+
+    Presents three sub-tasks in sequence: perception (shapes always visible),
+    shape binding (working memory without colour), and colour binding (working
+    memory with colour). Patients press Same or Different for each question.
+
+    Attributes:
+        parent: Parent Consultation instance, or None in standalone mode.
+        display_size: Vector2 dimensions of the display area.
+        display_screen: DisplayScreen for the upper screen.
+        touch_screen: TouchScreen for the lower screen.
+        button_module: ButtonModule for hardware button input.
+        same_button: GameButton for the 'Same' response.
+        different_button: GameButton for the 'Different' response.
+        shape_size: Vector2 size used for overlap-check bounding boxes.
+        match: 1 if the current question is a match, 0 if not.
+        turns: Total number of questions answered so far.
+        scores: List of correct counts per question type [perception, shape, colour].
+        question_counts: Target question counts per type [perception, shape, colour].
+        answer_times: List of per-question reaction times in seconds.
+        trial_log: List of per-trial dicts with question and response data.
+        start_time: monotonic timestamp of when the current question was displayed.
+        results: Dict populated by exit_sequence with summary statistics.
+        running: Main loop control flag.
+        auto_run: If True, simulate responses automatically.
+        show_info: Whether the info overlay is currently visible.
+        power_off: If True, show the power-off splash screen.
+    """
+
     def __init__(self, size=(1024, 600), parent=None, auto_run=False):
+        """
+        Initialise the Shape Searcher and set up button layout.
+
+        Args:
+            size: Tuple (width, height) used in standalone mode without a parent.
+            parent: Parent Consultation instance. If provided, screens are shared.
+            auto_run: If True, simulate responses automatically (for testing).
+        """
         self.parent = parent
         if parent is not None:
             self.display_size = parent.display_size
@@ -89,7 +179,7 @@ class ShapeSearcher:
         self.scores = [0, 0, 0]
         self.question_counts = [10, 0, 0]
         self.answer_times = []
-        self.trial_log = []  # per-question: {question_num, correct, reaction_time_s, patient_said_same, was_same}
+        self.trial_log = []
         self.start_time = None
         self.results = {}
 
@@ -103,6 +193,14 @@ class ShapeSearcher:
         self.power_off = False
 
     def instruction_loop(self, question):
+        """
+        Show an instruction screen for the given question type and wait for Start.
+
+        No-ops in auto_run mode.
+
+        Args:
+            question: Question type string — 'perception', 'shape', or 'colour'.
+        """
         if self.auto_run:
             return
 
@@ -172,11 +270,13 @@ class ShapeSearcher:
         self.update_display()
 
     def update_display(self):
+        """Blit both screens to the physical displays."""
         self.top_screen.blit(self.display_screen.get_surface(), (0, 0))
         self.bottom_screen.blit(self.touch_screen.get_surface(), (0, 0))
         pg.display.flip()
 
     def entry_sequence(self):
+        """Speak the intro and start the first perception question block."""
         self.update_display()
         if self.parent:
             self.parent.speak_text("your next set of tasks will all involve matching sets of shapes",
@@ -192,6 +292,16 @@ class ShapeSearcher:
         self.start_time = time.monotonic()
 
     def check_ok(self, pos, existing):
+        """
+        Test whether a candidate position overlaps any existing shape position.
+
+        Args:
+            pos: Candidate (x, y) position for the new shape.
+            existing: List of existing positions to check against.
+
+        Returns:
+            True if pos does not collide with any existing position.
+        """
         for point in existing:
             invalid = pg.Rect((point.x - self.shape_size.x, point.y - self.shape_size.y),
                               self.shape_size * 2).scale_by(1.1, 1.1)
@@ -201,6 +311,22 @@ class ShapeSearcher:
             return True
 
     def generate_symbol_set(self, area, shape_count, scene_shapes=None, colours=None):
+        """
+        Generate a random set of shapes placed within the given area.
+
+        If scene_shapes is provided and self.match is False, a completely
+        different set of shapes is selected to ensure a non-matching pair.
+
+        Args:
+            area: pg.Rect defining the placement region.
+            shape_count: Number of shapes to generate.
+            scene_shapes: Optional Series of shape names to reuse or replace.
+            colours: Optional Series of Colours enum values to reuse.
+
+        Returns:
+            Tuple of (symbol_list, scene_shapes, colours) where symbol_list is
+            a list of (Surface, position) pairs.
+        """
         area = area.copy()
         area.size -= self.shape_size
         if colours is None:
@@ -230,6 +356,12 @@ class ShapeSearcher:
                 name, colour, position in zip(scene_shapes, colours, positions)], scene_shapes, colours
 
     def perception_question(self):
+        """
+        Display two sets of three shapes split by a horizontal divider.
+
+        Both sets are always visible simultaneously. self.match determines
+        whether the sets are identical (colour and shape) or differ.
+        """
         self.touch_screen.refresh()
 
         place_area = pg.Rect((0, 0), self.touch_screen.size).scale_by(0.95, 0.7)
@@ -253,6 +385,16 @@ class ShapeSearcher:
         self.update_display()
 
     def binding_question(self, colour=True):
+        """
+        Display a working memory shape matching question.
+
+        Shows the first set briefly, clears the screen, then shows the second
+        set for the patient to compare from memory.
+
+        Args:
+            colour: If True, shapes are coloured (colour binding). If False,
+                all shapes use the same colour (shape binding only).
+        """
         self.touch_screen.refresh()
         self.display_screen.instruction = "Do the sets match?"
         self.touch_screen.kill_sprites()
@@ -289,6 +431,7 @@ class ShapeSearcher:
         self.update_display()
 
     def speed_question(self):
+        """Display a random red circle and prompt the patient to tap it."""
         self.touch_screen.refresh()
         self.touch_screen.kill_sprites()
         self.display_screen.instruction = "Touch the dot!"
@@ -306,11 +449,16 @@ class ShapeSearcher:
         self.update_display()
 
     def exit_sequence(self):
+        """
+        Compile per-question results into self.results.
+
+        In auto_run mode, generates synthetic reaction times before compiling.
+        """
         if self.auto_run:
             self.answer_times = [random.gauss(mu=1, sigma=0.1) for _ in range(self.turns)]
 
         total_q = self.turns
-        correct_q = self.scores[0]  # only perception mode runs (question_counts = [5, 0, 0])
+        correct_q = self.scores[0]  # only perception mode runs (question_counts = [10, 0, 0])
         self.results = {
             'total_questions': total_q,
             'correct': correct_q,
@@ -321,6 +469,16 @@ class ShapeSearcher:
         }
 
     def process_selection(self, selection):
+        """
+        Record a patient response and advance to the next question.
+
+        Updates scores, trial log, and turn count. Transitions between
+        question types when a block is complete, and ends the game if the
+        patient scores below 80% on the perception block.
+
+        Args:
+            selection: 1 if the patient pressed 'Same', 0 for 'Different'.
+        """
         reaction_time = time.monotonic() - self.start_time
         self.answer_times.append(reaction_time)
 
@@ -345,7 +503,7 @@ class ShapeSearcher:
         if self.turns == sum(self.question_counts):
             self.running = False
         elif self.turns == self.question_counts[0] and self.scores[0] < 0.8 * self.question_counts[0]:
-
+            # Early exit if perception accuracy is too low to proceed
             self.running = False
         else:
             if self.turns == self.question_counts[0]:
@@ -374,6 +532,12 @@ class ShapeSearcher:
         self.start_time = time.monotonic()
 
     def button_actions(self, selected):
+        """
+        Handle hardware button presses during the game.
+
+        Args:
+            selected: Buttons enum member for the pressed button.
+        """
         if selected == Buttons.info and not self.power_off:
             self.show_info = not self.show_info
             self.toggle_info_screen()
@@ -389,8 +553,8 @@ class ShapeSearcher:
         else:
             ...
 
-
     def toggle_info_screen(self):
+        """Toggle the instruction overlay on the upper display."""
         if self.show_info:
             self.display_screen.state = 1
             self.display_screen.instruction = None
@@ -425,6 +589,12 @@ class ShapeSearcher:
             self.update_display()
 
     def loop(self):
+        """
+        Main event loop — called by the orchestrator.
+
+        In auto_run mode, simulates responses with weighted random choices.
+        In normal mode, handles touch input and hardware button presses.
+        """
         self.entry_sequence()
         while self.running:
             if self.auto_run:
@@ -466,14 +636,3 @@ class ShapeSearcher:
                     self.button_actions(selected)
 
         self.exit_sequence()
-
-
-if __name__ == "__main__":
-    os.chdir("../..")
-    pg.init()
-    pg.event.pump()
-    shape_searcher = ShapeSearcher(auto_run=False)
-    shape_searcher.loop()
-    print(f"Score: {sum(shape_searcher.scores)}/{sum(shape_searcher.question_counts)}")
-    print("Module run successfully")
-    

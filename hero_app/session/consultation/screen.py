@@ -1,3 +1,10 @@
+"""
+Pygame surface primitives for the HERO consultation UI.
+
+Provides the base Screen class used by all display layers, along with
+colour, font, and blit-location enumerations shared across the system.
+"""
+
 import math
 from enum import Enum
 
@@ -6,6 +13,8 @@ import pygame.freetype
 
 
 class Colours(Enum):
+    """Named colour palette used across all HERO UI components."""
+
     clear = pg.SRCALPHA
     white = pg.Color(255, 255, 255)
     black = pg.Color(1, 1, 1)
@@ -22,6 +31,8 @@ class Colours(Enum):
 
 
 class BlitLocation(Enum):
+    """Anchor point enum for positioning surfaces and text during blit operations."""
+
     topLeft = 0
     midTop = 1
     topRight = 2
@@ -34,18 +45,59 @@ class BlitLocation(Enum):
 
 
 class Fonts:
+    """
+    Font presets loaded from the HERO Calibri resource file.
+
+    Attributes:
+        large: 50pt font.
+        normal: 30pt font.
+        small: 15pt font.
+        custom: Dynamically sized font, defaults to normal.
+    """
+
     def __init__(self):
-        self.large = pg.font.Font("consultation/resources/fonts/calibri-regular.ttf", 50)
-        self.normal = pg.font.Font("consultation/resources/fonts/calibri-regular.ttf", 30)
-        self.small = pg.font.Font("consultation/resources/fonts/calibri-regular.ttf", 15)
+        self.large = pg.font.Font("hero/consultation/resources/fonts/calibri-regular.ttf", 50)
+        self.normal = pg.font.Font("hero/consultation/resources/fonts/calibri-regular.ttf", 30)
+        self.small = pg.font.Font("hero/consultation/resources/fonts/calibri-regular.ttf", 15)
         self.custom = self.normal
 
     def update_custom(self, size):
-        self.custom = pg.font.Font("consultation/resources/fonts/calibri-regular.ttf", size=size)
+        """
+        Set the custom font to a specific point size.
+
+        Args:
+            size: Point size for the custom font.
+        """
+        self.custom = pg.font.Font("hero/consultation/resources/fonts/calibri-regular.ttf", size=size)
 
 
 class Screen:
+    """
+    Layered pygame surface wrapper used as the base for all HERO screens.
+
+    Manages three composited layers — base (static background), surface
+    (dynamic content), and sprite (interactive elements) — which are
+    flattened into a single surface via get_surface().
+
+    Attributes:
+        size: Surface dimensions as a Vector2.
+        base_surface: Static background layer.
+        surface: Dynamic content layer, cleared on refresh().
+        sprite_surface: Interactive sprite layer, cleared on refresh().
+        font: Active font used for text rendering.
+        fonts: Fonts instance providing size presets.
+        colour: Background fill colour.
+    """
+
     def __init__(self, size, font=None, colour=None):
+        """
+        Initialise the Screen with the given dimensions and optional defaults.
+
+        Args:
+            size: Tuple or Vector2 (width, height) of the surface.
+            font: Optional pygame Font to use as the active font. Defaults to Fonts.normal.
+            colour: Optional Colours enum or pg.Color to fill the base surface.
+        """
         self.size = pg.Vector2(size)
         self.base_surface = pg.Surface(size, pg.SRCALPHA)
         self.surface = pg.Surface(size, pg.SRCALPHA)
@@ -66,6 +118,16 @@ class Screen:
             self.base_surface.fill(colour)
 
     def add_surf(self, surf: pg.Surface, pos=(0, 0), base=False, location=BlitLocation.topLeft, sprite=False):
+        """
+        Blit a surface onto one of the screen layers.
+
+        Args:
+            surf: Surface to blit.
+            pos: (x, y) position to blit at.
+            base: If True, blit onto the base layer instead of the dynamic layer.
+            location: BlitLocation anchor point applied to pos.
+            sprite: If True, blit onto the sprite layer.
+        """
         surf_rect = pg.Rect(pos, surf.get_size())
 
         if location == BlitLocation.centre:
@@ -86,6 +148,18 @@ class Screen:
             self.surface.blit(surf, surf_rect.topleft)
 
     def load_image(self, path, pos=(0, 0), fill=False, base=False, size=None, scale=None, location=BlitLocation.topLeft):
+        """
+        Load an image from disk and blit it onto the screen.
+
+        Args:
+            path: File path to the image.
+            pos: (x, y) position to blit at.
+            fill: If True, scale the image to fill the entire surface.
+            base: If True, blit onto the base layer.
+            size: Optional (width, height) to scale the image to.
+            scale: Optional Vector2 scale factor applied to the image dimensions.
+            location: BlitLocation anchor point applied to pos.
+        """
         image = pg.image.load(path)
 
         if size:
@@ -108,7 +182,18 @@ class Screen:
             self.surface.blit(image, imageRect.topleft)
 
     def add_image(self, image, pos=pg.Vector2(0, 0), fill=False, scale=None, size=None, location=BlitLocation.topLeft, base=False):
+        """
+        Blit an already-loaded image surface onto the screen.
 
+        Args:
+            image: pygame Surface to blit.
+            pos: (x, y) position to blit at.
+            fill: If True, scale the image to fill the entire surface.
+            scale: Optional Vector2 scale factor applied to image dimensions.
+            size: Optional (width, height) to scale the image to.
+            location: BlitLocation anchor point applied to pos.
+            base: If True, blit onto the base layer.
+        """
         if base:
             surf = self.base_surface
         else:
@@ -123,7 +208,6 @@ class Screen:
 
         size = pg.Vector2(image.get_size())
         if location == BlitLocation.centre:
-
             surf.blit(image, pos - size / 2)
         elif location == BlitLocation.midBottom:
             newPos = pg.Vector2(pos.x - (size.x / 2), pos.y - size.y)
@@ -132,6 +216,19 @@ class Screen:
             surf.blit(image, pos)
 
     def add_text(self, text, pos, lines=1, colour=Colours.black, bg_colour=None, location=BlitLocation.topLeft, sprite=False, base=False):
+        """
+        Render a single line of text onto the screen.
+
+        Args:
+            text: String to render.
+            pos: (x, y) position to blit at.
+            lines: Unused; reserved for future multi-line support.
+            colour: Colours enum value for the text colour.
+            bg_colour: Optional Colours enum value for a background fill behind the text.
+            location: BlitLocation anchor point applied to pos.
+            sprite: If True, render onto the sprite layer.
+            base: If True, render onto the base layer.
+        """
         text_surf = self.font.render(text, True, colour.value)
         if bg_colour:
             bg_surf = pg.Surface(text_surf.get_size(), pg.SRCALPHA)
@@ -159,6 +256,21 @@ class Screen:
 
     def add_multiline_text(self, text, rect, location=BlitLocation.topLeft, center_horizontal=False, center_vertical=False,
                            colour=None, bg_colour=None, font_size=None, border_width=2, base=False):
+        """
+        Render word-wrapped text within a bounding rectangle.
+
+        Args:
+            text: String to render. Use '\\n' as a word token to force a line break.
+            rect: pg.Rect defining the bounding area for the text.
+            location: BlitLocation anchor point applied to rect.topleft.
+            center_horizontal: If True, centre each line horizontally within rect.
+            center_vertical: If True, centre the text block vertically within rect.
+            colour: Colours enum value for the text. Defaults to Colours.hero_blue.
+            bg_colour: Optional Colours enum value for a background fill behind the text block.
+            font_size: Optional point size to use for rendering. Resets to normal after.
+            border_width: Minimum padding in pixels between text and rect edges.
+            base: If True, render onto the base layer.
+        """
         rect: pg.Rect
 
         if colour is None:
@@ -228,6 +340,21 @@ class Screen:
 
     def create_layered_shape(self, pos, shape, size, number, colours, offsets,
                              radii, offsetWidth=False, offsetHeight=False, base=False):
+        """
+        Draw a multi-layer concentric shape (rectangle or ellipse) onto the screen.
+
+        Args:
+            pos: (x, y) position to blit the composed shape surface.
+            shape: Shape type string — 'rectangle' or any other value for ellipse.
+            size: Vector2 dimensions of the outer bounding surface.
+            number: Number of concentric layers to draw.
+            colours: List of Colours enum values, one per layer.
+            offsets: List of Vector2 or Rect offsets applied cumulatively per layer.
+            radii: List of border radii, one per layer (used for rectangles only).
+            offsetWidth: Fraction of surface width to offset the blit position.
+            offsetHeight: Fraction of surface height to offset the blit position.
+            base: If True, blit onto the base layer.
+        """
         # create surfaces
         surf = pg.Surface(size, pg.SRCALPHA)
         center = size / 2
@@ -269,6 +396,15 @@ class Screen:
             self.surface.blit(surf, pos - offset)
 
     def update_pixels(self, pos, colour=Colours.black.value, base=False, width=3):
+        """
+        Set individual pixels in a square region centred on pos.
+
+        Args:
+            pos: (x, y) centre position of the pixel patch.
+            colour: RGBA tuple for the pixel colour.
+            base: If True, write to the base layer.
+            width: Side length in pixels of the square patch to fill.
+        """
         pad = (width - 1) / 2
         for x_pos in range(int(pos[0] - pad), int(pos[0] + 1 + pad)):
             for y_pos in range(int(pos[1] - pad), int(pos[1] + 1 + pad)):
@@ -278,6 +414,17 @@ class Screen:
                     self.surface.set_at((x_pos, y_pos), colour)
 
     def add_speech_bubble(self, rect, pos, border=4, tiers=4, colour=Colours.black, base=False):
+        """
+        Draw a speech bubble border onto the screen.
+
+        Args:
+            rect: pg.Rect defining the bounding area of the bubble.
+            pos: (x, y) position to blit the bubble surface.
+            border: Total border thickness in pixels.
+            tiers: Number of gradient tiers used to soften the border edges.
+            colour: Colours enum value for the border.
+            base: If True, blit onto the base layer.
+        """
         rect: pg.Rect
 
         inside_tiers = max([2, math.floor(tiers/2)])
@@ -333,15 +480,23 @@ class Screen:
             self.surface.blit(surf, pos)
 
     def refresh(self):
+        """Clear the dynamic and sprite layers, preserving the base layer."""
         self.surface = pg.Surface(self.size, pg.SRCALPHA)
         self.sprite_surface = pg.Surface(self.size, pg.SRCALPHA)
 
     def clear_surfaces(self):
+        """Release all surface references and the active font."""
         self.surface = None
         self.base_surface = None
         self.font = None
 
     def get_surface(self):
+        """
+        Composite all three layers into a single surface.
+
+        Returns:
+            pg.Surface with base, dynamic, and sprite layers merged top-to-bottom.
+        """
         display_surf = self.base_surface.copy()
         display_surf.blit(self.surface, (0, 0))
         display_surf.blit(self.sprite_surface, (0, 0))
@@ -349,6 +504,13 @@ class Screen:
         return display_surf
 
     def scale_surface(self, scale, base=False):
+        """
+        Scale the dynamic (and optionally base) surface by a scalar factor.
+
+        Args:
+            scale: Scalar multiplier applied to current surface dimensions.
+            base: If True, also scale the base surface.
+        """
         self.size = pg.Vector2(self.base_surface.get_size()) * scale
         self.surface = pg.transform.scale(self.surface, pg.Vector2(self.surface.get_size()) * scale)
         if base:

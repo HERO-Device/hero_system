@@ -1,8 +1,8 @@
 """
-Trail Making Test (TMT) - Medical Assessment Game
+Trail Making Test (TMT) — medical assessment game.
 
 Patient clicks numbered circles in order (1 → 2 → 3 ...).
-Tracks completion time, errors, path efficiency, smoothness and pauses.
+Tracks completion time, errors, path efficiency, smoothness, and pauses.
 
 Supports two input modes:
 - MOUSE: click-based (laptop testing)
@@ -17,9 +17,9 @@ import time
 
 import pygame as pg
 
-from consultation.display_screen import DisplayScreen
-from consultation.touch_screen import TouchScreen, GameObjects, GameButton
-from consultation.screen import Colours
+from hero.consultation.display_screen import DisplayScreen
+from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
+from hero.consultation.screen import Colours
 
 # Configuration
 NUM_CIRCLES = 10
@@ -50,12 +50,30 @@ MODE_STYLUS = 'touchscreen'
 MODE_MOUSE  = 'mouse'
 
 
-# ------------------------------------------------------------------
-# Helper classes (unchanged from original)
-# ------------------------------------------------------------------
-
 class TMTCircle:
+    """
+    A numbered target circle for the Trail Making Test.
+
+    Attributes:
+        x: Pixel x-coordinate of the circle centre.
+        y: Pixel y-coordinate of the circle centre.
+        label: Integer label displayed inside the circle.
+        radius: Circle radius in pixels.
+        completed: True once the patient has hit this circle.
+        entry_time: Elapsed time in seconds when the circle was hit.
+        entry_position: (x, y) pixel position of the hit event.
+    """
+
     def __init__(self, x, y, label, radius):
+        """
+        Initialise a TMT circle.
+
+        Args:
+            x: Pixel x-coordinate of the circle centre.
+            y: Pixel y-coordinate of the circle centre.
+            label: Integer label to display inside the circle.
+            radius: Circle radius in pixels.
+        """
         self.x = x
         self.y = y
         self.label = label
@@ -65,6 +83,13 @@ class TMTCircle:
         self.entry_position = None
 
     def draw(self, surface, is_current=False):
+        """
+        Render the circle onto a surface.
+
+        Args:
+            surface: pygame Surface to draw onto.
+            is_current: If True, highlight the circle as the next target.
+        """
         color = GREEN if self.completed else (LIGHT_BLUE if is_current else WHITE)
         pg.draw.circle(surface, color, (self.x, self.y), self.radius)
         pg.draw.circle(surface, BLACK, (self.x, self.y), self.radius, 2)
@@ -73,16 +98,43 @@ class TMTCircle:
         surface.blit(text, text.get_rect(center=(self.x, self.y)))
 
     def contains_point(self, pos):
+        """
+        Test whether a position falls within the circle.
+
+        Args:
+            pos: (x, y) position to test.
+
+        Returns:
+            True if pos is within the circle radius, False otherwise.
+        """
         dx = pos[0] - self.x
         dy = pos[1] - self.y
         return math.sqrt(dx * dx + dy * dy) <= self.radius
 
 
 class PerformanceMetrics:
+    """
+    Accumulates and computes kinematic metrics for a TMT run.
+
+    Tracks path points, movement speed, pauses, and provides summary
+    statistics including path efficiency and smoothness.
+
+    Attributes:
+        path_points: List of dicts with 'position' and 'timestamp' keys.
+        optimal_distance: Straight-line sum between consecutive circles.
+        actual_distance: Total length of the recorded path.
+        pauses: List of pause event dicts with 'start' and 'duration'.
+        current_pause_start: Timestamp of the current pause start, or None.
+        last_movement_time: Timestamp of the last detected movement.
+        movement_speeds: List of instantaneous speed samples in px/s.
+    """
+
     def __init__(self):
+        """Initialise all metric accumulators."""
         self.reset()
 
     def reset(self):
+        """Reset all accumulators to their initial empty state."""
         self.path_points = []
         self.optimal_distance = 0
         self.actual_distance = 0
@@ -92,6 +144,13 @@ class PerformanceMetrics:
         self.movement_speeds = []
 
     def add_path_point(self, pos, timestamp):
+        """
+        Record a path point and update speed and pause tracking.
+
+        Args:
+            pos: (x, y) position in bottom-screen pixel coordinates.
+            timestamp: Elapsed time in seconds since test start.
+        """
         self.path_points.append({'position': pos, 'timestamp': timestamp})
 
         if len(self.path_points) > 1:
@@ -120,6 +179,12 @@ class PerformanceMetrics:
                 self.last_movement_time = timestamp
 
     def calculate_actual_distance(self):
+        """
+        Compute total path length from all recorded path points.
+
+        Returns:
+            Total Euclidean path length in pixels.
+        """
         total = 0
         for i in range(1, len(self.path_points)):
             prev = self.path_points[i - 1]['position']
@@ -130,6 +195,15 @@ class PerformanceMetrics:
         return total
 
     def calculate_optimal_distance(self, circles):
+        """
+        Compute the shortest possible path through all circles in order.
+
+        Args:
+            circles: List of TMTCircle objects in completion order.
+
+        Returns:
+            Sum of straight-line distances between consecutive circle centres.
+        """
         total = 0
         for i in range(1, len(circles)):
             dx = circles[i].x - circles[i - 1].x
@@ -138,11 +212,26 @@ class PerformanceMetrics:
         return total
 
     def calculate_path_efficiency(self):
+        """
+        Compute path efficiency as a percentage of optimal over actual distance.
+
+        Returns:
+            Float in [0, 100]; 100 means the patient took the optimal path.
+        """
         if self.actual_distance == 0:
             return 100.0
         return min(100.0, (self.optimal_distance / self.actual_distance) * 100)
 
     def calculate_path_smoothness(self):
+        """
+        Compute path smoothness from direction change variability.
+
+        Analyses direction changes over a sliding window and returns a score
+        where 100 indicates perfectly straight segments.
+
+        Returns:
+            Float in [0, 100]; higher is smoother.
+        """
         if len(self.path_points) < SMOOTHNESS_WINDOW:
             return 100.0
 
@@ -170,6 +259,18 @@ class PerformanceMetrics:
         return max(0.0, min(100.0, 100 * (1 - avg / math.pi)))
 
     def get_summary(self, completion_time, completed_circles):
+        """
+        Compile all metrics into a results summary dict.
+
+        Args:
+            completion_time: Total elapsed time for the test in seconds.
+            completed_circles: List of TMTCircle objects that were completed.
+
+        Returns:
+            Dict with keys: completion_time, path_efficiency, path_smoothness,
+            total_distance, optimal_distance, pause_count, total_pause_time,
+            average_speed, speed_variability.
+        """
         self.actual_distance = self.calculate_actual_distance()
         self.optimal_distance = self.calculate_optimal_distance(completed_circles)
         speeds = self.movement_speeds
@@ -186,19 +287,64 @@ class PerformanceMetrics:
         }
 
     def _std(self, values):
+        """
+        Compute the population standard deviation of a list of values.
+
+        Args:
+            values: List of numeric values.
+
+        Returns:
+            Standard deviation, or 0 if fewer than 2 values.
+        """
         if len(values) < 2:
             return 0
         mean = sum(values) / len(values)
         return math.sqrt(sum((x - mean) ** 2 for x in values) / len(values))
 
 
-# ------------------------------------------------------------------
-# Main class
-# ------------------------------------------------------------------
-
 class TrailMakingTest:
+    """
+    Trail Making Test game for the HERO consultation system.
+
+    Generates a random layout of numbered circles on the touchscreen and
+    records the patient's path through them in order. Supports both click
+    (mouse) and continuous stylus (touchscreen) input modes.
+
+    Attributes:
+        parent: Parent Consultation instance, or None in standalone mode.
+        auto_run: If True, skip instruction screens and simulate input.
+        running: Main loop control flag.
+        difficulty: Circle size setting — 'small', 'medium', or 'large'.
+        test_type: TMT variant label ('A' for numbers only).
+        circle_radius: Pixel radius for each circle.
+        display_size: Vector2 dimensions of the display area.
+        display_screen: DisplayScreen for the upper screen.
+        touch_screen: TouchScreen for the lower screen.
+        circles: List of TMTCircle objects for this run.
+        current_index: Index of the next circle to be hit.
+        path: List of dicts recording each successfully hit circle.
+        errors: Count of incorrect circle hits.
+        start_time: Unix timestamp of the first circle hit.
+        end_time: Unix timestamp of test completion.
+        completed: True once all circles have been hit.
+        drawing: True while the stylus is held down in touchscreen mode.
+        draw_path: List of (x, y) positions forming the current stylus stroke.
+        input_mode: Current mode string — MODE_STYLUS or MODE_MOUSE.
+        metrics: PerformanceMetrics instance accumulating kinematic data.
+        results: Dict populated by _complete_test() with summary statistics.
+    """
+
     def __init__(self, parent=None, auto_run=False,
                  difficulty='medium', test_type='A'):
+        """
+        Initialise the Trail Making Test and generate the circle layout.
+
+        Args:
+            parent: Parent Consultation instance. If provided, screens are shared.
+            auto_run: If True, skip instruction screens and simulate input.
+            difficulty: Circle size — 'small', 'medium', or 'large'.
+            test_type: TMT variant label. Currently only 'A' (numeric) is used.
+        """
         self.parent = parent
         self.auto_run = auto_run
         self.running = False
@@ -246,12 +392,8 @@ class TrailMakingTest:
 
         self._generate_circles()
 
-    # ------------------------------------------------------------------
-    # Circle generation
-    # ------------------------------------------------------------------
-
     def _generate_circles(self):
-        """Generate non-overlapping circles on the bottom screen."""
+        """Generate non-overlapping numbered circles placed randomly on the bottom screen."""
         self.circles = []
         w = int(self.display_size.x)
         h = int(self.display_size.y)
@@ -271,12 +413,16 @@ class TrailMakingTest:
                 self.circles.append(TMTCircle(x, y, label, self.circle_radius))
             attempts += 1
 
-    # ------------------------------------------------------------------
-    # Input handling
-    # ------------------------------------------------------------------
-
     def _handle_click(self, pos):
-        """Mouse-mode: register a click on the bottom screen."""
+        """
+        Register a click event in mouse input mode.
+
+        Records a hit if the click lands on the expected next circle, or
+        increments the error count if a different circle is clicked.
+
+        Args:
+            pos: (x, y) position in bottom-screen pixel coordinates.
+        """
         if self.completed:
             return
 
@@ -315,7 +461,16 @@ class TrailMakingTest:
                     break
 
     def _handle_touch_movement(self, pos, timestamp):
-        """Stylus-mode: handle continuous movement."""
+        """
+        Handle continuous stylus movement in touchscreen input mode.
+
+        Passes every position to the metrics tracker and auto-completes a
+        circle when the stylus enters its boundary.
+
+        Args:
+            pos: (x, y) position in bottom-screen pixel coordinates.
+            timestamp: Absolute time.time() value for the event.
+        """
         if self.completed:
             return
 
@@ -343,7 +498,7 @@ class TrailMakingTest:
                     self._complete_test()
 
     def _complete_test(self):
-        """Mark test complete and compile metrics."""
+        """Mark the test complete, compile summary metrics, and populate self.results."""
         self.completed = True
         self.end_time = time.time()
         completion_time = self.end_time - self.start_time
@@ -365,14 +520,13 @@ class TrailMakingTest:
             for p in self.path
         ]
 
-
-
-    # ------------------------------------------------------------------
-    # Drawing
-    # ------------------------------------------------------------------
-
     def _draw(self, surface):
-        """Draw the full game onto the given surface."""
+        """
+        Draw the full game state onto the given surface.
+
+        Args:
+            surface: pygame Surface to render onto (sized to display_size).
+        """
         surface.fill(WHITE)
         w = int(self.display_size.x)
         h = int(self.display_size.y)
@@ -415,14 +569,14 @@ class TrailMakingTest:
         pg.draw.rect(surface, BLACK, box, 2)
         surface.blit(mode_surf, mode_surf.get_rect(center=box.center))
 
-        # Completion overlay — just white out the bottom screen, top screen handles messaging
+        # Completion overlay
         if self.completed and self.results:
             overlay = pg.Surface((w, h), pg.SRCALPHA)
             overlay.fill((255, 255, 255, 220))
             surface.blit(overlay, (0, 0))
 
     def _update_display(self):
-        """Render top and bottom screens."""
+        """Render the current game state to both physical screens."""
         self.display_screen.refresh()
         if self.completed:
             self.display_screen.instruction = "Well done!"
@@ -438,12 +592,12 @@ class TrailMakingTest:
 
         pg.display.flip()
 
-    # ------------------------------------------------------------------
-    # Entry / Exit
-    # ------------------------------------------------------------------
-
     def _instruction_loop(self):
-        """Show instruction screen — avatar + title on top, plain START button on bottom."""
+        """
+        Show the instruction screen and wait for the patient to press Start.
+
+        No-ops in auto_run mode.
+        """
         if self.auto_run:
             return
 
@@ -455,7 +609,6 @@ class TrailMakingTest:
         pg.draw.rect(self.display_screen.surface, Colours.white.value, info_rect)
         self.display_screen.add_multiline_text("Trail Making Test", rect=info_rect.scale_by(0.9, 0.9), font_size=50)
 
-        # Exactly the same button as Shapes
         button_rect = pg.Rect((self.display_size - pg.Vector2(300, 200)) / 2, (300, 200))
         start_button = GameButton(position=button_rect.topleft, size=button_rect.size, text="START", id=1)
         self.touch_screen.sprites = GameObjects([start_button])
@@ -480,22 +633,28 @@ class TrailMakingTest:
         self.display_screen.refresh()
 
     def entry_sequence(self):
+        """Show instructions and begin the game."""
         self.running = True
         self._instruction_loop()
         self._update_display()
 
     def exit_sequence(self):
-        """Show completion screen briefly then hand back to orchestrator."""
+        """
+        Display the completion screen briefly before returning control.
+
+        Shows the final state for 2.5 seconds if results are available.
+        """
         if self.results:
             self._update_display()
             pg.time.wait(2500)
 
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
-
     def loop(self):
-        """Main game loop — called by the orchestrator."""
+        """
+        Main game loop — called by the orchestrator.
+
+        Processes input events, updates game state, and renders each frame
+        until all circles are completed or the loop is exited.
+        """
         self.entry_sequence()
         clock = pg.time.Clock()
 
@@ -548,4 +707,3 @@ class TrailMakingTest:
             self._update_display()
 
         self.exit_sequence()
-        

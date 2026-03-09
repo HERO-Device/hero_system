@@ -1,3 +1,10 @@
+"""
+Shared utilities for the HERO consultation UI.
+
+Provides MediaPipe face data extraction, screenshot capture, JSON encoding,
+and hardware button input handling.
+"""
+
 import cv2
 import datetime
 import pygame as pg
@@ -6,6 +13,7 @@ import json
 from datetime import date, datetime
 from enum import Enum
 import subprocess
+
 try:
     import gpiod
     from gpiod.line import Direction, Value
@@ -14,6 +22,17 @@ except ImportError:
 
 
 def get_pipe_data(detector, image):
+    """
+    Extract face landmarks, blendshapes, and pose matrix from a MediaPipe detection.
+
+    Args:
+        detector: MediaPipe FaceLandmarker detector instance.
+        image: MediaPipe Image object to run detection on.
+
+    Returns:
+        Tuple of (landArray, blend_scores, pose_matrix) where each is a numpy
+        array on success, or (None, None, None) if no face is detected.
+    """
     faceDetection = detector.detect(image)
 
     try:
@@ -35,6 +54,13 @@ def get_pipe_data(detector, image):
 
 
 def take_screenshot(screen, filename=None):
+    """
+    Save the current pygame surface as a PNG screenshot.
+
+    Args:
+        screen: pygame Surface to capture.
+        filename: Output filename (without extension). Defaults to current datetime.
+    """
     print("Taking Screenshot")
     img_array = pg.surfarray.array3d(screen)
     img_array = cv2.transpose(img_array)
@@ -45,7 +71,23 @@ def take_screenshot(screen, filename=None):
 
 
 class NpEncoder(json.JSONEncoder):
+    """
+    JSON encoder that handles numpy and datetime types.
+
+    Extends the default JSONEncoder to serialise numpy integers, floats,
+    arrays, and datetime/date objects.
+    """
+
     def default(self, obj):
+        """
+        Convert numpy or datetime objects to JSON-serialisable types.
+
+        Args:
+            obj: Object to serialise.
+
+        Returns:
+            JSON-serialisable equivalent of obj.
+        """
         if isinstance(obj, np.integer):
             return int(obj)
         if isinstance(obj, np.floating):
@@ -59,6 +101,8 @@ class NpEncoder(json.JSONEncoder):
 
 
 class Buttons(Enum):
+    """Physical button identifiers for the HERO hardware button module."""
+
     power = "Power"
     Home = "Home"
     vol_up = "Vol_Up"
@@ -67,7 +111,27 @@ class Buttons(Enum):
 
 
 class ButtonModule:
+    """
+    Hardware button input handler supporting both Pi GPIO and keyboard emulation.
+
+    On Pi, reads physical GPIO lines via gpiod. In non-Pi mode, maps keyboard
+    keys 1–5 to the equivalent button actions for development use.
+
+    Attributes:
+        pi: Whether GPIO mode is active.
+        button_dict: Mapping of pin numbers (Pi) or key codes (non-Pi) to button names.
+        states: Current debounce state for each button.
+        buttons: Reference to the Buttons enum.
+        volume: Current system volume level (0–100).
+    """
+
     def __init__(self, pi=True):
+        """
+        Initialise the button module and configure GPIO lines or keyboard mappings.
+
+        Args:
+            pi: If True, use GPIO input via gpiod. If False, use keyboard key emulation.
+        """
         self.pi = pi
         if self.pi:
             # Define Raspberry Pi button pins
@@ -98,11 +162,11 @@ class ButtonModule:
             }
 
         self.states = {
-            "Power": 0,  # to track the current state (on/off)
-            "Home": 0,  # to track the current state (on/off)
-            "Vol_Up": 0,  # to track the current state (on/off)
-            "Vol_Down": 0,  # to track the current state (on/off)
-            "Info": 0,  # to track the current state (on/off)
+            "Power": 0,
+            "Home": 0,
+            "Vol_Up": 0,
+            "Vol_Down": 0,
+            "Info": 0,
         }
 
         self.buttons = Buttons
@@ -110,6 +174,14 @@ class ButtonModule:
         self.volume = 70
 
     def check_pressed(self):
+        """
+        Poll all buttons and return the first newly pressed button.
+
+        Volume buttons are handled internally (amixer call) and return None.
+
+        Returns:
+            Buttons enum member for the pressed button, or None if no new press.
+        """
         if self.pi:
             for (pin_num, line_req, name) in self.button_lines:
                 button_state = line_req.get_value(pin_num) == Value.ACTIVE
@@ -138,7 +210,7 @@ class ButtonModule:
             for val, name in self.button_dict.items():
 
                 if pressed[val] and not self.states[name]:
-                    self.states[name] = pressed[val]  # update the internal state
+                    self.states[name] = pressed[val]
 
                     return self.buttons(name)
 

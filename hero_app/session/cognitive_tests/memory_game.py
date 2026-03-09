@@ -1,9 +1,9 @@
 """
-Memory Game - Spatial memory assessment
+Memory Game — spatial memory assessment.
 
-Shows a 3x3 grid of icons for 8 seconds (encoding phase).
-Patient then recalls where each icon was located (recall phase).
-Tracks score and response accuracy.
+Shows a grid of icons for a fixed encoding period (8 seconds), then
+prompts the patient to recall where each icon was located. Tracks score,
+accuracy, and per-trial cell distance for downstream analysis.
 
 Adapted from standalone version to work within the HERO consultation framework.
 """
@@ -12,9 +12,9 @@ import os
 import random
 import pygame as pg
 
-from consultation.display_screen import DisplayScreen
-from consultation.touch_screen import TouchScreen, GameObjects, GameButton
-from consultation.screen import Colours
+from hero.consultation.display_screen import DisplayScreen
+from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
+from hero.consultation.screen import Colours
 
 # Constants
 GRID_COLS = 4
@@ -36,8 +36,51 @@ TEXT_GRAY = (100, 100, 100)
 
 
 class MemoryGame:
+    """
+    Spatial icon memory game for the HERO consultation system.
+
+    Displays a 4×2 grid of icons during encoding, clears the screen, then
+    prompts the patient to recall each icon's position one at a time.
+    Provides colour-coded feedback per trial and compiles a results dict.
+
+    Attributes:
+        parent: Parent Consultation instance, or None in standalone mode.
+        auto_run: If True, skip instruction screens (encoding still runs).
+        running: Main loop control flag.
+        icons_folder: Path to the folder containing PNG icon images.
+        display_size: Vector2 dimensions of the display area.
+        display_screen: DisplayScreen for the upper screen.
+        touch_screen: TouchScreen for the lower screen.
+        title_font: Font for large title text.
+        instruction_font: Font for instruction text.
+        score_font: Font for score display.
+        icons: List of loaded and scaled icon Surfaces.
+        phase: Current game phase string — 'waiting', 'encoding', 'recall', or 'feedback'.
+        symbol_positions: Dict mapping icon index to (row, col) grid cell.
+        recalled_symbols: Set of icon indices already recalled.
+        incorrect_symbols: Set of icon indices recalled incorrectly.
+        current_symbol_index: Index into symbols_to_recall for the current prompt.
+        symbols_to_recall: Shuffled list of icon indices to recall.
+        score: Count of correctly recalled icons.
+        total_trials: Total number of recall attempts so far.
+        encoding_start_time: pg.time.get_ticks() value when encoding began.
+        feedback_start_time: pg.time.get_ticks() value when feedback began.
+        correct_pos: (row, col) of the correct cell for the last trial.
+        wrong_pos: (row, col) of the clicked cell if incorrect, or None.
+        results: Dict populated by exit_sequence with summary statistics.
+        trial_log: List of per-trial dicts with correctness and distance data.
+    """
+
     def __init__(self, parent=None, auto_run=False,
-                 icons_folder="consultation/resources/graphics/games/memory_icons"):
+                 icons_folder="hero/consultation/resources/graphics/games/memory_icons"):
+        """
+        Initialise the Memory Game and load icon images.
+
+        Args:
+            parent: Parent Consultation instance. If provided, screens are shared.
+            auto_run: If True, skip instruction wait loops.
+            icons_folder: Path to folder containing PNG icon images.
+        """
         self.parent = parent
         self.auto_run = auto_run
         self.running = False
@@ -88,24 +131,21 @@ class MemoryGame:
         self.wrong_pos = None
         self.button_rect = None
 
-        # Grid centred on bottom screen
-        w = int(self.display_size.x)
-        grid_total_width = GRID_SIZE * CELL_SIZE + (GRID_SIZE - 1) * GRID_PADDING
-
         # Results
         self.results = {}
-        self.trial_log = []   # per-trial: {trial_num, icon_idx, correct_cell, clicked_cell, correct, distance_px}
-
-    # ------------------------------------------------------------------
-    # Setup
-    # ------------------------------------------------------------------
+        self.trial_log = []
 
     def _load_icons(self):
-        """Load icon images from the Icons folder."""
+        """
+        Load and scale icon images from the icons folder.
+
+        Returns:
+            List of pg.Surface objects scaled to ICON_SIZE × ICON_SIZE.
+            Returns an empty list if the folder does not exist.
+        """
         icons = []
 
         if not os.path.exists(self.icons_folder):
-
             return icons
 
         image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
@@ -123,16 +163,10 @@ class MemoryGame:
             except Exception as e:
                 pass
 
-
-
         return icons
 
-    # ------------------------------------------------------------------
-    # Game logic
-    # ------------------------------------------------------------------
-
     def _start_game(self):
-        """Initialise a new game round."""
+        """Randomly assign icons to grid cells and begin the encoding phase."""
         self.phase = "encoding"
         self.symbol_positions = {}
         self.recalled_symbols = set()
@@ -154,6 +188,16 @@ class MemoryGame:
         self.encoding_start_time = pg.time.get_ticks()
 
     def _get_cell_rect(self, row, col):
+        """
+        Compute the pixel rect for a grid cell in bottom-screen coordinates.
+
+        Args:
+            row: Row index (0-based).
+            col: Column index (0-based).
+
+        Returns:
+            pg.Rect for the cell in bottom-screen pixel coordinates.
+        """
         grid_total_width = GRID_COLS * CELL_SIZE + (GRID_COLS - 1) * GRID_PADDING
         grid_total_height = GRID_ROWS * CELL_SIZE + (GRID_ROWS - 1) * GRID_PADDING
         w = int(self.display_size.x)
@@ -165,7 +209,15 @@ class MemoryGame:
         return pg.Rect(x, y, CELL_SIZE, CELL_SIZE)
 
     def _get_clicked_cell(self, pos):
-        """Convert bottom-screen mouse position to grid cell."""
+        """
+        Convert a bottom-screen mouse position to a grid cell.
+
+        Args:
+            pos: (x, y) position in bottom-screen pixel coordinates.
+
+        Returns:
+            (row, col) tuple of the clicked cell, or None if outside the grid.
+        """
         for row in range(GRID_ROWS):
             for col in range(GRID_COLS):
                 if self._get_cell_rect(row, col).collidepoint(pos):
@@ -173,7 +225,15 @@ class MemoryGame:
         return None
 
     def _handle_recall_click(self, clicked_cell):
-        """Handle a recall attempt."""
+        """
+        Process a recall attempt for the current icon prompt.
+
+        Compares the clicked cell against the correct cell, updates score and
+        feedback state, and advances to the feedback phase.
+
+        Args:
+            clicked_cell: (row, col) tuple of the grid cell the patient tapped.
+        """
         if self.current_symbol_index >= len(self.symbols_to_recall):
             return
 
@@ -211,7 +271,12 @@ class MemoryGame:
         self.feedback_start_time = pg.time.get_ticks()
 
     def _update(self):
-        """Update game state each frame."""
+        """
+        Advance game state based on elapsed time.
+
+        Transitions from encoding → recall after ENCODING_TIME ms, and from
+        feedback → recall after 1.5 s. Ends the game when all icons are recalled.
+        """
         if self.phase == "encoding":
             if pg.time.get_ticks() - self.encoding_start_time >= ENCODING_TIME:
                 self.phase = "recall"
@@ -228,12 +293,16 @@ class MemoryGame:
             if self.current_symbol_index >= len(self.symbols_to_recall) and self.symbols_to_recall:
                 self.running = False
 
-    # ------------------------------------------------------------------
-    # Drawing
-    # ------------------------------------------------------------------
-
     def _draw_grid(self, surface):
-        """Draw the icon grid onto the given surface."""
+        """
+        Render the icon grid onto a surface.
+
+        During encoding, all icons are shown. During recall/feedback, only
+        recalled icons are shown with colour-coded feedback.
+
+        Args:
+            surface: pygame Surface to draw onto.
+        """
         for row in range(GRID_ROWS):
             for col in range(GRID_COLS):
                 rect = self._get_cell_rect(row, col)
@@ -273,7 +342,12 @@ class MemoryGame:
                     surface.blit(icon_to_draw, icon_rect)
 
     def _draw_ui(self, surface):
-        """Draw icon prompt and score on bottom screen only."""
+        """
+        Draw the current icon prompt and running score on the bottom screen.
+
+        Args:
+            surface: pygame Surface to draw onto.
+        """
         w = int(self.display_size.x)
         h = int(self.display_size.y)
 
@@ -294,7 +368,7 @@ class MemoryGame:
         surface.blit(score_surf, score_surf.get_rect(center=(w // 2, h - 40)))
 
     def _update_display(self):
-        """Render top and bottom screens."""
+        """Render the current game state to both physical screens."""
         self.display_screen.refresh()
         if self.phase == "encoding":
             elapsed = (pg.time.get_ticks() - self.encoding_start_time) / 1000
@@ -320,12 +394,12 @@ class MemoryGame:
 
         pg.display.flip()
 
-    # ------------------------------------------------------------------
-    # Entry / Exit
-    # ------------------------------------------------------------------
-
     def _instruction_loop(self):
-        """Show instruction screen — avatar + title on top, START button on bottom."""
+        """
+        Show the instruction screen and wait for the patient to press Start.
+
+        In auto_run mode, starts the game immediately without waiting.
+        """
         if self.auto_run:
             self._start_game()
             return
@@ -343,7 +417,6 @@ class MemoryGame:
                      "After a few seconds they will disappear, and you will need to recall where each one was.")
         self.display_screen.add_multiline_text(rect=info_rect.scale_by(0.9, 0.9), text=info_text, center_vertical=True)
 
-        # Exactly the same button as Shapes
         button_rect = pg.Rect((self.display_size - pg.Vector2(300, 200)) / 2, (300, 200))
         start_button = GameButton(position=button_rect.topleft, size=button_rect.size, text="START", id=1)
         self.touch_screen.sprites = GameObjects([start_button])
@@ -374,17 +447,17 @@ class MemoryGame:
         self._start_game()
 
     def entry_sequence(self):
-        """Show instructions then start the game."""
+        """Show the instruction screen and initialise the game."""
         self.running = True
         self.phase = "waiting"
-
-        if self.parent and self.parent.config.speech:
-            pass  # speech handled inside _instruction_loop via speak_text
-
         self._instruction_loop()
 
     def exit_sequence(self):
-        """Compile and store results."""
+        """
+        Compile per-trial results into self.results.
+
+        Computes accuracy percentage and average Manhattan cell distance.
+        """
         accuracy = (
             round((self.score / self.total_trials) * 100, 1)
             if self.total_trials > 0 else 0
@@ -402,13 +475,13 @@ class MemoryGame:
             'trial_log': self.trial_log,
         }
 
-
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
-
     def loop(self):
-        """Main game loop — called by the orchestrator."""
+        """
+        Main game loop — called by the orchestrator.
+
+        Processes input events, updates game state each frame, and renders
+        until all icons have been recalled or the loop is exited.
+        """
         self.entry_sequence()
         clock = pg.time.Clock()
 
@@ -436,4 +509,3 @@ class MemoryGame:
             clock.tick(60)
 
         self.exit_sequence()
-        

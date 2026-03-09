@@ -1,6 +1,16 @@
+"""
+Login screen for the HERO consultation system.
+
+Presents an on-screen QWERTY keyboard for username and password entry,
+verifies credentials against the PostgreSQL database, and returns an
+authenticated User on success.
+"""
+
 import math
+import os
 import time
 
+import pandas as pd
 import pygame as pg
 
 from consultation.utils import Buttons, ButtonModule, take_screenshot
@@ -10,19 +20,70 @@ from consultation.touch_screen import TouchScreen, GameObjects, GameButton
 
 
 class User:
+    """
+    Lightweight patient user model populated after successful login.
+
+    Attributes:
+        id: Unique user identifier from the database.
+        name: Patient display name.
+        age: Patient age (may be None if not provided).
+    """
+
     def __init__(self, name, age, id):
+        """
+        Initialise a User.
+
+        Args:
+            name: Patient display name.
+            age: Patient age, or None if unknown.
+            id: Unique user identifier.
+        """
         self.id = id
         self.name = name
         self.age = age
 
 
 class LoginScreen:
+    """
+    On-screen keyboard login screen for patient authentication.
+
+    Renders a QWERTY keyboard on the lower touchscreen and username/password
+    fields on the upper display. Credential verification queries the parent
+    consultation's HeroDB instance.
+
+    Attributes:
+        parent: Parent Consultation instance, or None in standalone mode.
+        display_size: Vector2 dimensions of the screen area.
+        display_screen: DisplayScreen for the upper physical screen.
+        touch_screen: TouchScreen for the lower physical screen.
+        button_module: ButtonModule for hardware button input.
+        keys: List of GameButton sprites forming the keyboard.
+        active_string: Which field is being edited, 'user' or 'pass'.
+        user: Authenticated User instance set by exit_sequence on success.
+        user_string: List of chars forming the current username input.
+        pass_string: List of chars forming the current password input.
+        running: Main loop control flag.
+        auto_run: If True, skip the interactive loop if credentials are pre-filled.
+        power_off: If True, display the power-off splash screen.
+    """
+
     def __init__(self, size=(1024, 600), parent=None, username=None, password=None, auto_run=False):
+        """
+        Initialise the login screen and build the on-screen keyboard.
+
+        Args:
+            size: Tuple (width, height) used in standalone mode without a parent.
+            parent: Parent Consultation instance. If provided, screens are shared.
+            username: Optional pre-filled username string (for testing/auto_run).
+            password: Optional pre-filled password string (for testing/auto_run).
+            auto_run: If True, skip the interactive loop if credentials are pre-filled.
+        """
         self.parent = parent
         if parent is not None:
             self.display_size = parent.display_size
             self.bottom_screen = parent.bottom_screen
             self.top_screen = parent.top_screen
+            self.all_user_data = parent.all_user_data
             self.display_screen = DisplayScreen(self.display_size, avatar=parent.avatar)
             self.button_module = parent.button_module
 
@@ -33,7 +94,7 @@ class LoginScreen:
             self.top_screen = self.window.subsurface(((0, 0), self.display_size))
             self.bottom_screen = self.window.subsurface((0, self.display_size.y), self.display_size)
             self.display_screen = DisplayScreen(self.display_size)
-
+            self.all_user_data = None
             self.button_module = ButtonModule(pi=False)
 
         self.info_rect = pg.Rect(0.3 * self.display_size.x, 0, 0.7 * self.display_size.x, 0.8 * self.display_size.y)
@@ -102,6 +163,7 @@ class LoginScreen:
         self.power_off = False
 
     def update_display(self):
+        """Refresh both screens and blit the current login state to the physical displays."""
         self.display_screen.refresh()
 
         user_rect = self.info_rect.scale_by(0.9, 0.8)
@@ -133,9 +195,19 @@ class LoginScreen:
         pg.display.flip()
 
     def check_credentials(self):
+        """
+        Verify the entered username and password against the database.
+
+        On success, sets self.parent.user to the authenticated User. Falls back
+        to CSV user data if no database is available.
+
+        Returns:
+            True if credentials are valid, False otherwise.
+        """
         username = "".join(self.user_string)
         password = "".join(self.pass_string)
 
+        # --- PostgreSQL DB auth ---
         if self.parent and self.parent.db:
             db_user = self.parent.db.verify_login(username, password)
             if db_user:
@@ -148,9 +220,16 @@ class LoginScreen:
             else:
                 return False
 
+        # --- CSV fallback ---
+        if self.all_user_data is not None:
+            if username in self.all_user_data.index:
+                if self.all_user_data.loc[username, "Password"] == password:
+                    return True
+
         return False
 
     def entry_sequence(self):
+        """Show the login screen and speak the welcome prompt."""
         self.running = True
         self.update_display()
 
@@ -170,14 +249,40 @@ class LoginScreen:
                 self.running = False
 
     def exit_sequence(self):
-        self.running = False
+        """
+        Finalise login and return the authenticated User.
 
+        If the database path set self.parent.user during check_credentials,
+        that User is returned directly. Falls back to constructing a User
+        from CSV data if no database is available.
+
+        Returns:
+            Authenticated User instance, or None if login failed.
+        """
+        self.running = False
+        username = "".join(self.user_string)
+
+        # DB path: parent.user already set in check_credentials
         if self.parent and self.parent.user:
             return self.parent.user
+
+        # CSV fallback
+        if self.all_user_data is not None and username in self.all_user_data.index:
+            user_data = self.all_user_data.loc[username]
+            user = User(name=user_data["FirstName"], age=21, id=user_data["UserID"])
+            if self.parent:
+                self.parent.user = user
+            return user
 
         return None
 
     def button_actions(self, selected):
+        """
+        Handle hardware button presses.
+
+        Args:
+            selected: Buttons enum member for the pressed button.
+        """
         if selected == Buttons.power:
             self.power_off = not self.power_off
             self.display_screen.power_off = self.power_off
@@ -185,6 +290,15 @@ class LoginScreen:
             self.update_display()
 
     def loop(self):
+        """
+        Main event loop for the login screen.
+
+        Handles keyboard button taps, credential submission, and hardware
+        button presses. Returns the authenticated User on success.
+
+        Returns:
+            Authenticated User instance from exit_sequence, or None.
+        """
         self.entry_sequence()
 
         while self.running:
