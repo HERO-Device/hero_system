@@ -32,7 +32,9 @@ Output directory structure:
             ├── sensor_eye_tracking.csv
             ├── sensor_heart_rate.csv
             ├── sensor_oximeter.csv
-            └── calibration.csv
+            ├── calibration.csv
+            ├── calibration_eye_tracking.csv
+            └── events.csv
 """
 
 import argparse
@@ -54,8 +56,10 @@ from hero_core.database.models.game_results import GameResult
 from hero_core.database.models.sensors import (
     SensorAccelerometer, SensorGyroscope, SensorEEG,
     SensorEyeTracking, SensorHeartRate, SensorOximeter,
+    CalibrationEyeTracking,
 )
 from hero_core.database.models.calibration import SensorCalibration
+from hero_core.database.models.events import Event
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 logger = logging.getLogger(__name__)
@@ -157,6 +161,19 @@ def export_session(db_session, session: TestSession, export_root: Path) -> Path:
     n = _write_csv(export_dir / "calibration.csv", [_model_to_dict(r) for r in cal_rows])
     file_counts["calibration.csv"] = n
 
+    # ---- Eye tracking calibration ----
+    eye_cal = db_session.query(CalibrationEyeTracking).filter_by(session_id=session.session_id).first()
+    if eye_cal:
+        n = _write_csv(export_dir / "calibration_eye_tracking.csv", [_model_to_dict(eye_cal)])
+    else:
+        n = _write_csv(export_dir / "calibration_eye_tracking.csv", [])
+    file_counts["calibration_eye_tracking.csv"] = n
+
+    # ---- Events ----
+    event_rows = db_session.query(Event).filter_by(session_id=session.session_id).order_by(Event.time).all()
+    n = _write_csv(export_dir / "events.csv", [_model_to_dict(r) for r in event_rows])
+    file_counts["events.csv"] = n
+
     # ---- Manifest ----
     manifest = [
         "HERO Session Export",
@@ -174,7 +191,7 @@ def export_session(db_session, session: TestSession, export_root: Path) -> Path:
         "-----",
     ]
     for fname, count in file_counts.items():
-        manifest.append(f"  {fname:<32} {count} row(s)")
+        manifest.append(f"  {fname:<36} {count} row(s)")
 
     (export_dir / "export_manifest.txt").write_text("\n".join(manifest) + "\n")
 
