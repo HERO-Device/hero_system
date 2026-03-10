@@ -26,12 +26,13 @@ Output directory structure:
             ├── export_manifest.txt
             ├── session_info.csv
             ├── game_results.csv
-            ├── sensor_accelerometer.csv
-            ├── sensor_gyroscope.csv
-            ├── sensor_eeg.csv
-            ├── sensor_eye_tracking.csv
-            ├── sensor_heart_rate.csv
-            ├── sensor_oximeter.csv
+            ├── sensor_timeseries.csv          (all sensors merged, forward-filled)
+            ├── sensor_accelerometer.csv       (raw)
+            ├── sensor_gyroscope.csv           (raw)
+            ├── sensor_eeg.csv                 (raw)
+            ├── sensor_eye_tracking.csv        (raw)
+            ├── sensor_heart_rate.csv          (raw)
+            ├── sensor_oximeter.csv            (raw)
             ├── calibration.csv
             ├── calibration_eye_tracking.csv
             └── events.csv
@@ -45,6 +46,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -81,6 +83,34 @@ SENSOR_TABLES = {
     "sensor_oximeter":      SensorOximeter,
 }
 
+# Column prefixes and data columns for each sensor, used to build sensor_timeseries.csv.
+SENSOR_MERGE_CONFIG = {
+    "sensor_eeg": {
+        "prefix":  "eeg_",
+        "columns": ["channel_1", "channel_2", "channel_3", "channel_4", "quality_flag", "is_valid"],
+    },
+    "sensor_accelerometer": {
+        "prefix":  "accel_",
+        "columns": ["x", "y", "z", "quality_score", "is_valid"],
+    },
+    "sensor_gyroscope": {
+        "prefix":  "gyro_",
+        "columns": ["x", "y", "z", "quality_score", "is_valid"],
+    },
+    "sensor_heart_rate": {
+        "prefix":  "hr_",
+        "columns": ["raw_signal", "quality", "is_valid"],
+    },
+    "sensor_oximeter": {
+        "prefix":  "ox_",
+        "columns": ["red_signal", "infrared_signal", "is_valid"],
+    },
+    "sensor_eye_tracking": {
+        "prefix":  "eye_",
+        "columns": ["gaze_x", "gaze_y", "raw_yaw", "raw_pitch", "confidence", "is_valid"],
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -112,6 +142,34 @@ def _resolve_uuid(raw: str) -> uuid.UUID:
         sys.exit(1)
 
 
+def _build_sensor_timeseries(sensor_dfs: dict) -> pd.DataFrame:
+    """
+    Merge per-sensor DataFrames into a single forward-filled timeseries.
+
+    Each sensor DataFrame is outer-joined on its timestamp index, then
+    forward-filled so every row has a value for every sensor column.
+    Sensors that were inactive for a session produce all-NaN columns.
+
+    Args:
+        sensor_dfs: Dict mapping sensor label to a DataFrame with a
+                    datetime index and prefixed columns.
+
+    Returns:
+        Merged DataFrame sorted by timestamp with a 'timestamp' column.
+    """
+    frames = [df for df in sensor_dfs.values() if not df.empty]
+    if not frames:
+        return pd.DataFrame(columns=["timestamp"])
+
+    merged = frames[0]
+    for df in frames[1:]:
+        merged = merged.merge(df, left_index=True, right_index=True, how="outer")
+
+    merged = merged.sort_index().ffill()
+    merged.index.name = "timestamp"
+    return merged.reset_index()
+
+
 # ---------------------------------------------------------------------------
 # Core export logic
 # ---------------------------------------------------------------------------
@@ -119,6 +177,10 @@ def _resolve_uuid(raw: str) -> uuid.UUID:
 def export_session(db_session, session: TestSession, export_root: Path) -> Path:
     """
     Export all data for a single anonymised session to a structured subdirectory.
+
+    Writes individual raw sensor CSVs plus a merged sensor_timeseries.csv
+    (outer-joined on timestamp, forward-filled). Also exports eye tracking
+    calibration quality metrics and session events.
 
     Directory structure: <export_root>/<age_range>/<session_id>/
 
@@ -150,27 +212,48 @@ def export_session(db_session, session: TestSession, export_root: Path) -> Path:
     n = _write_csv(export_dir / "game_results.csv", [_model_to_dict(r) for r in game_rows])
     file_counts["game_results.csv"] = n
 
-    # ---- Sensor tables ----
+    # ---- Raw sensor tables + collect DataFrames for merge ----
+    sensor_dfs = {}
     for label, model_cls in SENSOR_TABLES.items():
         rows = db_session.query(model_cls).filter_by(session_id=session.session_id).all()
-        n = _write_csv(export_dir / f"{label}.csv", [_model_to_dict(r) for r in rows])
+        dicts = [_model_to_dict(r) for r in rows]
+        n = _write_csv(export_dir / f"{label}.csv", dicts)
         file_counts[f"{label}.csv"] = n
 
-    # ---- Calibration ----
+        cfg = SENSOR_MERGE_CONFIG.get(label)
+        if cfg and dicts:
+            df = pd.DataFrame(dicts).set_index("time")[cfg["columns"]].copy()
+            df.index = pd.to_datetime(df.index, utc=True)
+            df.columns = [f"{cfg['prefix']}{col}" for col in df.columns]
+            sensor_dfs[label] = df
+        else:
+            sensor_dfs[label] = pd.DataFrame()
+
+    # ---- Merged sensor timeseries ----
+    timeseries = _build_sensor_timeseries(sensor_dfs)
+    timeseries.to_csv(export_dir / "sensor_timeseries.csv", index=False)
+    file_counts["sensor_timeseries.csv"] = len(timeseries)
+
+    # ---- Sensor calibration (init status) ----
     cal_rows = db_session.query(SensorCalibration).filter_by(session_id=session.session_id).all()
     n = _write_csv(export_dir / "calibration.csv", [_model_to_dict(r) for r in cal_rows])
     file_counts["calibration.csv"] = n
 
-    # ---- Eye tracking calibration ----
+    # ---- Eye tracking calibration (quality metrics) ----
     eye_cal = db_session.query(CalibrationEyeTracking).filter_by(session_id=session.session_id).first()
-    if eye_cal:
-        n = _write_csv(export_dir / "calibration_eye_tracking.csv", [_model_to_dict(eye_cal)])
-    else:
-        n = _write_csv(export_dir / "calibration_eye_tracking.csv", [])
+    n = _write_csv(
+        export_dir / "calibration_eye_tracking.csv",
+        [_model_to_dict(eye_cal)] if eye_cal else [],
+    )
     file_counts["calibration_eye_tracking.csv"] = n
 
     # ---- Events ----
-    event_rows = db_session.query(Event).filter_by(session_id=session.session_id).order_by(Event.time).all()
+    event_rows = (
+        db_session.query(Event)
+        .filter_by(session_id=session.session_id)
+        .order_by(Event.time)
+        .all()
+    )
     n = _write_csv(export_dir / "events.csv", [_model_to_dict(r) for r in event_rows])
     file_counts["events.csv"] = n
 
@@ -186,6 +269,15 @@ def export_session(db_session, session: TestSession, export_root: Path) -> Path:
         f"Session start: {session.started_at}",
         f"Session end  : {session.ended_at}",
         f"Notes        : {session.notes or ''}",
+        "",
+        "Sensor columns in sensor_timeseries.csv",
+        "----------------------------------------",
+        "  eeg_*       OpenBCI Ganglion (~200 Hz)",
+        "  accel_*     MPU6050 accelerometer (~75 Hz, forward-filled)",
+        "  gyro_*      MPU6050 gyroscope (~75 Hz, forward-filled)",
+        "  hr_*        MAX30102 heart rate (~84 Hz, forward-filled)",
+        "  ox_*        MAX30102 oximeter (~84 Hz, forward-filled)",
+        "  eye_*       ArduCam gaze tracking (forward-filled)",
         "",
         "Files",
         "-----",
@@ -288,3 +380,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
