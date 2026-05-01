@@ -17,9 +17,9 @@ import time
 
 import pygame as pg
 
-from hero.consultation.display_screen import DisplayScreen
-from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
-from hero.consultation.screen import Colours
+from consultation.display_screen import DisplayScreen
+from consultation.touch_screen import TouchScreen, GameObjects, GameButton
+from consultation.screen import Colours
 
 # Configuration
 NUM_CIRCLES = 10

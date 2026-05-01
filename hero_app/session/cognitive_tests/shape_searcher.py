@@ -15,10 +15,10 @@ import numpy as np
 import pandas as pd
 import pygame as pg
 
-from hero.consultation.display_screen import DisplayScreen
-from hero.consultation.screen import Colours
-from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
-from hero.consultation.utils import take_screenshot, Buttons, ButtonModule
+from consultation.display_screen import DisplayScreen
+from consultation.screen import Colours
+from consultation.touch_screen import TouchScreen, GameObjects, GameButton
+from consultation.utils import take_screenshot, Buttons, ButtonModule
 
 rocket = [(4, 0), (8, 4), (5, 8), (4, 5), (3, 8), (0, 4)]
 lightning_1 = [(5, 0), (5, 3), (8, 3), (3, 8), (3, 5), (0, 5)]

@@ -14,11 +14,11 @@ import os
 import time
 import joblib
 
-from hero.consultation.touch_screen import TouchScreen, GameObjects
-from hero.consultation.screen import Colours, BlitLocation
-from hero.consultation.display_screen import DisplayScreen
+from consultation.touch_screen import TouchScreen, GameObjects
+from consultation.screen import Colours, BlitLocation
+from consultation.display_screen import DisplayScreen
 
-from hero.consultation.utils import take_screenshot, Buttons, ButtonModule
+from consultation.utils import take_screenshot, Buttons, ButtonModule
 
 
 def augment_data(input_data, spiral_radius, invert_y=False, time_unit="seconds"):
@@ -204,7 +204,7 @@ class SpiralTest:
         self.prev_pos = None
         self.turns = 0
 
-        self.prediction_model = joblib.load("models/linear_regression_model.joblib")
+        self.prediction_model = joblib.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../affective_computing/models/linear_regression_model.joblib"))
 
         self.prediction, self.classification = None, None
         self.draw_trace = draw_trace

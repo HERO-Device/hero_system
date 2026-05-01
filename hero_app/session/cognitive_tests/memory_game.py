@@ -12,9 +12,9 @@ import os
 import random
 import pygame as pg
 
-from hero.consultation.display_screen import DisplayScreen
-from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
-from hero.consultation.screen import Colours
+from consultation.display_screen import DisplayScreen
+from consultation.touch_screen import TouchScreen, GameObjects, GameButton
+from consultation.screen import Colours
 
 # Constants
 GRID_COLS = 4
@@ -72,7 +72,7 @@ class MemoryGame:
     """
 
     def __init__(self, parent=None, auto_run=False,
-                 icons_folder="hero/consultation/resources/graphics/games/memory_icons"):
+                 icons_folder="consultation/resources/graphics/games/memory_icons"):
         """
         Initialise the Memory Game and load icon images.
 

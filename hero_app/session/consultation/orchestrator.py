@@ -24,23 +24,23 @@ import pandas as pd
 import pygame as pg
 
 # Hero imports
-from hero.consultation.config import ConsultConfig
-from hero.consultation.avatar import Avatar
-from hero.consultation.display_screen import DisplayScreen
-from hero.consultation.touch_screen import TouchScreen, GameObjects, GameButton
-from hero.consultation.utils import take_screenshot, NpEncoder, Buttons, ButtonModule
-from hero.consultation.screen import Colours, Fonts
+from consultation.config import ConsultConfig
+from consultation.avatar import Avatar
+from consultation.display_screen import DisplayScreen
+from consultation.touch_screen import TouchScreen, GameObjects, GameButton
+from consultation.utils import take_screenshot, NpEncoder, Buttons, ButtonModule
+from consultation.screen import Colours, Fonts
 
 # Cognitive test imports
-from hero.cognitive_tests.shape_searcher import ShapeSearcher
-from hero.cognitive_tests.spiral_test import SpiralTest
-from hero.cognitive_tests.memory_game import MemoryGame
-from hero.cognitive_tests.trail_making_test import TrailMakingTest
-from hero.consultation.login_screen import LoginScreen
+from cognitive_tests.shape_searcher import ShapeSearcher
+from cognitive_tests.spiral_test import SpiralTest
+from cognitive_tests.memory_game import MemoryGame
+from cognitive_tests.trail_making_test import TrailMakingTest
+from consultation.login_screen import LoginScreen
 
 # Affective computing
 try:
-    from hero.affective_computing.affective_computing_pi import AffectiveModulePi
+    from affective_computing.affective_computing_pi import AffectiveModulePi
     AFFECTIVE_AVAILABLE = True
 except ImportError as e:
     print(f"⚠ Warning: Affective computing not available: {e}")
@@ -167,7 +167,7 @@ class Consultation:
         os.makedirs(self.audio_temp_dir, exist_ok=True)
 
         # Resources directory
-        self.resources_dir = "hero/consultation/resources"
+        self.resources_dir = "consultation/resources"
 
         # Display setup
         self.display_size = pg.Vector2(1024, 600) * scale
@@ -245,7 +245,7 @@ class Consultation:
         self.display_screen.avatar = self.avatar
 
         # Hardware buttons
-        self.button_module = ButtonModule(pi)
+        self.button_module = ButtonModule(pi=False)
 
         # Initialize test modules
         self.modules = {
