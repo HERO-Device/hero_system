@@ -21,8 +21,6 @@ YELLOW= (255, 255, 0)
 RED   = (255, 60,  60)
 CYAN  = (0,   255, 255)
 
-# GPIO pin for the Home button (eye calibration confirm)
-HOME_PIN = 17
 
 
 class CalibrationScreen:
@@ -42,20 +40,6 @@ class CalibrationScreen:
         on_complete: Optional[Callable] = None,
         pi: bool = True,
     ):
-        """
-        Initialise the calibration screen.
-
-        Args:
-            session_id:   UUID of the current session.
-            db_session:   SQLAlchemy session for eye tracking calibration data.
-            display_size: Size of a single physical display as a pygame Vector2.
-            window:       Full combined pygame Surface spanning both displays.
-            on_complete:  Optional callback invoked when calibration is accepted.
-            pi:           True if running on the Raspberry Pi, False for development.
-
-        Returns:
-            None.
-        """
         self.session_id   = session_id
         self.db_session   = db_session
         self.display_size = display_size
@@ -73,54 +57,18 @@ class CalibrationScreen:
         pg.font.init()
         self.font = pg.font.SysFont('couriernew', 18, bold=True)
 
-        # Set up Home button for calibration confirm
-        self._btn_request = None
+        # Set up ButtonWatcher for Home button
+        self._btn_watcher = None
         if pi:
             try:
-                import gpiod
-                from gpiod.line import Direction, Bias
-                self._btn_request = gpiod.request_lines(
-                    '/dev/gpiochip0',
-                    consumer='CalibBtn',
-                    config={HOME_PIN: gpiod.LineSettings(
-                        direction=Direction.INPUT,
-                        bias=Bias.PULL_UP,
-                    )}
-                )
-                self._btn_prev = None
+                from hero_app.buttons import ButtonWatcher
+                self._btn_watcher = ButtonWatcher.instance()
             except Exception as e:
-                logger.warning(f"Could not initialise Home button: {e}")
-                self._btn_request = None
+                logger.warning(f"Could not initialise ButtonWatcher: {e}")
 
-    def _home_button_pressed(self):
-        """
-        Check if the Home button (pin 17) was just pressed (falling edge).
 
-        Returns:
-            True if a press was detected, False otherwise.
-        """
-        if not self._btn_request:
-            return False
-        try:
-            from gpiod.line import Value
-            val = self._btn_request.get_value(HOME_PIN)
-            pressed = (val == Value.INACTIVE) and (self._btn_prev == Value.ACTIVE)
-            self._btn_prev = val
-            return pressed
-        except Exception:
-            return False
 
     def run(self):
-        """
-        Run the full calibration sequence.
-
-        Tests each sensor in order, runs EEG impedance check, initialises
-        eye tracking calibration, then waits for user input before invoking
-        the on_complete callback.
-
-        Returns:
-            None.
-        """
         self._add_line("HERO Calibration", CYAN)
         self._add_line("", FG)
         self._render()
@@ -170,49 +118,30 @@ class CalibrationScreen:
 
         self._wait_for_input()
 
-        if self._btn_request:
-            try:
-                self._btn_request.release()
-            except Exception:
-                pass
-
         if self.on_complete:
             self.on_complete()
 
     def _wait_for_input(self):
-        """
-        Block until the Home button, a mouse click, touch, or keypress is received.
+        """Block until Home button, mouse click, touch, or keypress."""
+        import threading
+        done = threading.Event()
 
-        Returns:
-            None.
-        """
-        # Initialise button state
-        if self._btn_request:
-            try:
-                from gpiod.line import Value
-                self._btn_prev = self._btn_request.get_value(HOME_PIN)
-            except Exception:
-                pass
+        # Register Home button callback
+        if self._btn_watcher:
+            self._btn_watcher.on('Home', done.set)
 
         pg.event.clear()
-        while True:
-            if self._home_button_pressed():
-                return
+        while not done.is_set():
             for event in pg.event.get():
                 if event.type in (pg.MOUSEBUTTONDOWN, pg.FINGERDOWN, pg.KEYDOWN):
-                    return
+                    done.set()
+                    break
             time.sleep(0.01)
 
+        if self._btn_watcher:
+            self._btn_watcher.off('Home')
+
     def _test_sensor(self, sensor_key: str):
-        """
-        Probe a sensor over I2C and verify its device ID.
-
-        Args:
-            sensor_key: Sensor identifier, either 'mpu6050' or 'max30102'.
-
-        Returns:
-            Tuple of (success, message) where message describes the result or error.
-        """
         try:
             if sensor_key == 'mpu6050':
                 import smbus2
@@ -233,26 +162,11 @@ class CalibrationScreen:
         return False, "Unknown sensor"
 
     def _find_serial_port(self):
-        """
-        Find the first available ttyACM serial port for the BLED112 dongle.
-
-        Returns:
-            Device path string e.g. '/dev/ttyACM0', or None if not found.
-        """
         import glob
         ports = sorted(glob.glob('/dev/ttyACM*'))
         return ports[0] if ports else None
 
     def _check_eeg_impedance(self):
-        """
-        Run a 3-second EEG impedance check and log per-channel results.
-
-        Connects to the Ganglion board, enables impedance mode, collects data,
-        and logs each channel's impedance in kΩ with an OK/HIGH status indicator.
-
-        Returns:
-            None.
-        """
         THRESHOLD = 50000
         try:
             import numpy as np
@@ -299,28 +213,9 @@ class CalibrationScreen:
             self._render()
 
     def _add_line(self, text: str, colour):
-        """
-        Append a line to the terminal display buffer.
-
-        Args:
-            text:   Line content to display.
-            colour: RGB tuple for the line colour.
-
-        Returns:
-            None.
-        """
         self.lines.append([text, colour, None])
 
     def _render(self):
-        """
-        Redraw the terminal display with the current line buffer.
-
-        Shows the most recent lines that fit within the display height,
-        centred vertically and horizontally.
-
-        Returns:
-            None.
-        """
         w   = int(self.display_size.x)
         h   = int(self.display_size.y)
         sur = pg.Surface((w, h))

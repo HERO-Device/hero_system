@@ -167,25 +167,20 @@ def print_session_summary(db, session_id):
 
 def wait_for_close():
     print("\n  Press VOL DOWN button or Enter to close...")
-    btn_request = None
-    if PI_MODE:
-        try:
-            import gpiod
-            from gpiod.line import Direction, Bias
-            btn_request = gpiod.request_lines(
-                '/dev/gpiochip0',
-                consumer='HeroClose',
-                config={VOL_DOWN_PIN: gpiod.LineSettings(
-                    direction=Direction.INPUT,
-                    bias=Bias.PULL_UP,
-                )}
-            )
-        except Exception as e:
-            logger.warning(f"Could not initialise Vol Down button: {e}")
-            btn_request = None
-
     import threading, time
     done = threading.Event()
+
+    # Register Vol Down button via ButtonWatcher
+    if PI_MODE:
+        try:
+            from hero_app.buttons import ButtonWatcher
+            watcher = ButtonWatcher.instance()
+            watcher.on('Vol_Down', done.set)
+        except Exception as e:
+            logger.warning(f"Could not register Vol Down button: {e}")
+            watcher = None
+    else:
+        watcher = None
 
     def wait_enter():
         try:
@@ -195,23 +190,10 @@ def wait_for_close():
         done.set()
 
     threading.Thread(target=wait_enter, daemon=True).start()
+    done.wait()
 
-    if btn_request:
-        from gpiod.line import Value
-        prev = btn_request.get_value(VOL_DOWN_PIN)
-        while not done.is_set():
-            val = btn_request.get_value(VOL_DOWN_PIN)
-            if val == Value.INACTIVE and prev == Value.ACTIVE:
-                done.set()
-                break
-            prev = val
-            time.sleep(0.02)
-        try:
-            btn_request.release()
-        except Exception:
-            pass
-    else:
-        done.wait()
+    if watcher:
+        watcher.off('Vol_Down')
 
 
 def main():
