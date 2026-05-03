@@ -6,11 +6,11 @@ Orchestrates the full session flow:
   3. Login patient
   4. Start test session in DB
   5. Start sensors
-  6. Run cognitive games (shared clock passed in)
+  6. Run cognitive games
   7. Stop sensors
   8. End session in DB
   9. Print session summary
- 10. Wait for Vol Down button or Enter to close
+ 10. Wait for Power button or Enter to close
 """
 
 import os
@@ -19,7 +19,6 @@ import signal
 import logging
 import pygame as pg
 
-# Ensure hero_system root is on path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "hero_system"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hero_app', 'session'))
@@ -76,10 +75,9 @@ def _start_exit_monitor():
 PI_MODE       = True
 SCALE         = 1
 ENABLE_SPEECH = False
-VOL_DOWN_PIN  = 27
 
 
-def start_sensors(session_id, clock=None, db_session=None):
+def start_sensors(session_id):
     logger.info(f"Spawning sensor process for session {session_id}...")
     try:
         venv_python = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -145,7 +143,8 @@ def print_session_summary(db, session_id):
         print("-" * W)
         try:
             from sqlalchemy import text
-            sensor_tables = ['eeg_data', 'accelerometer_data', 'heart_rate_data', 'gaze_data']
+            db.session.rollback()
+            sensor_tables = ['sensor_eeg', 'sensor_accelerometer', 'sensor_heart_rate', 'sensor_eye_tracking', 'sensor_oximeter']
             print("  Sensor data rows:")
             for table in sensor_tables:
                 try:
@@ -155,11 +154,16 @@ def print_session_summary(db, session_id):
                     ).scalar()
                     print(f"    {table:<25}: {count:>6} rows")
                 except Exception:
+                    db.session.rollback()
                     print(f"    {table:<25}: (table not found)")
         except Exception as e:
             print(f"  Could not query sensor tables: {e}")
-        event_count = db.session.query(Event).filter_by(session_id=session_id).count()
-        print(f"  Events logged : {event_count}")
+        try:
+            db.session.rollback()
+            event_count = db.session.query(Event).filter_by(session_id=session_id).count()
+            print(f"  Events logged : {event_count}")
+        except Exception:
+            pass
         print("=" * W)
     except Exception as e:
         print(f"  Could not generate summary: {e}")
@@ -167,20 +171,8 @@ def print_session_summary(db, session_id):
 
 def wait_for_close():
     print("\n  Press VOL DOWN button or Enter to close...")
-    import threading, time
+    import threading
     done = threading.Event()
-
-    # Register Vol Down button via ButtonWatcher
-    if PI_MODE:
-        try:
-            from hero_app.buttons import ButtonWatcher
-            watcher = ButtonWatcher.instance()
-            watcher.on('Vol_Down', done.set)
-        except Exception as e:
-            logger.warning(f"Could not register Vol Down button: {e}")
-            watcher = None
-    else:
-        watcher = None
 
     def wait_enter():
         try:
@@ -188,12 +180,18 @@ def wait_for_close():
         except Exception:
             pass
         done.set()
-
     threading.Thread(target=wait_enter, daemon=True).start()
-    done.wait()
 
-    if watcher:
-        watcher.off('Vol_Down')
+    def wait_button():
+        try:
+            from hero_app.buttons import wait_for_button
+            wait_for_button('Vol Down')
+            done.set()
+        except Exception as e:
+            logger.warning(f"Vol Down button failed: {e}")
+    threading.Thread(target=wait_button, daemon=True).start()
+
+    done.wait()
 
 
 def main():

@@ -57,14 +57,7 @@ class CalibrationScreen:
         pg.font.init()
         self.font = pg.font.SysFont('couriernew', 18, bold=True)
 
-        # Set up ButtonWatcher for Home button
-        self._btn_watcher = None
-        if pi:
-            try:
-                from hero_app.buttons import ButtonWatcher
-                self._btn_watcher = ButtonWatcher.instance()
-            except Exception as e:
-                logger.warning(f"Could not initialise ButtonWatcher: {e}")
+
 
 
 
@@ -126,20 +119,28 @@ class CalibrationScreen:
         import threading
         done = threading.Event()
 
-        # Register Home button callback
-        if self._btn_watcher:
-            self._btn_watcher.on('Home', done.set)
+        # Wait for Home button in background thread
+        def wait_home():
+            try:
+                print("CALIB: waiting for Home button...")
+                from hero_app.buttons import wait_for_button
+                wait_for_button('Home')
+                print("CALIB: Home detected, setting done")
+                done.set()
+            except Exception as e:
+                print(f"CALIB: Home button failed: {e}")
+                logger.warning(f"Home button failed: {e}")
+        threading.Thread(target=wait_home, daemon=True).start()
+        print("CALIB: button thread started")
 
+        time.sleep(0.5)   # let spurious touch events settle
         pg.event.clear()
         while not done.is_set():
             for event in pg.event.get():
-                if event.type in (pg.MOUSEBUTTONDOWN, pg.FINGERDOWN, pg.KEYDOWN):
+                if event.type == pg.KEYDOWN:
                     done.set()
                     break
             time.sleep(0.01)
-
-        if self._btn_watcher:
-            self._btn_watcher.off('Home')
 
     def _test_sensor(self, sensor_key: str):
         try:
