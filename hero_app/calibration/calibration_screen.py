@@ -21,6 +21,9 @@ YELLOW= (255, 255, 0)
 RED   = (255, 60,  60)
 CYAN  = (0,   255, 255)
 
+# GPIO pin for the Home button (eye calibration confirm)
+HOME_PIN = 17
+
 
 class CalibrationScreen:
 
@@ -69,6 +72,43 @@ class CalibrationScreen:
 
         pg.font.init()
         self.font = pg.font.SysFont('couriernew', 18, bold=True)
+
+        # Set up Home button for calibration confirm
+        self._btn_request = None
+        if pi:
+            try:
+                import gpiod
+                from gpiod.line import Direction, Bias
+                self._btn_request = gpiod.request_lines(
+                    '/dev/gpiochip0',
+                    consumer='CalibBtn',
+                    config={HOME_PIN: gpiod.LineSettings(
+                        direction=Direction.INPUT,
+                        bias=Bias.PULL_UP,
+                    )}
+                )
+                self._btn_prev = None
+            except Exception as e:
+                logger.warning(f"Could not initialise Home button: {e}")
+                self._btn_request = None
+
+    def _home_button_pressed(self):
+        """
+        Check if the Home button (pin 17) was just pressed (falling edge).
+
+        Returns:
+            True if a press was detected, False otherwise.
+        """
+        if not self._btn_request:
+            return False
+        try:
+            from gpiod.line import Value
+            val = self._btn_request.get_value(HOME_PIN)
+            pressed = (val == Value.INACTIVE) and (self._btn_prev == Value.ACTIVE)
+            self._btn_prev = val
+            return pressed
+        except Exception:
+            return False
 
     def run(self):
         """
@@ -125,23 +165,39 @@ class CalibrationScreen:
 
         self._render()
         self._add_line("", FG)
-        self._add_line("  Click anywhere to start", WHITE)
+        self._add_line("  Press HOME button or click to continue", WHITE)
         self._render()
 
         self._wait_for_input()
+
+        if self._btn_request:
+            try:
+                self._btn_request.release()
+            except Exception:
+                pass
 
         if self.on_complete:
             self.on_complete()
 
     def _wait_for_input(self):
         """
-        Block until a mouse click, touch, or keypress is received.
+        Block until the Home button, a mouse click, touch, or keypress is received.
 
         Returns:
             None.
         """
+        # Initialise button state
+        if self._btn_request:
+            try:
+                from gpiod.line import Value
+                self._btn_prev = self._btn_request.get_value(HOME_PIN)
+            except Exception:
+                pass
+
         pg.event.clear()
         while True:
+            if self._home_button_pressed():
+                return
             for event in pg.event.get():
                 if event.type in (pg.MOUSEBUTTONDOWN, pg.FINGERDOWN, pg.KEYDOWN):
                     return

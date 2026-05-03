@@ -14,7 +14,7 @@ from typing import Optional, TYPE_CHECKING
 from uuid import UUID
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'max30102_lib'))
-from max30102 import MAX30102
+from .MAX30102 import MAX30102
 
 from .config import MAX30102Config
 

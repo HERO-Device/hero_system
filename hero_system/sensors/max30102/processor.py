@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 from collections import deque
 
-import hrcalc
+from . import hrcalc
 
 from .config import MAX30102Config
 

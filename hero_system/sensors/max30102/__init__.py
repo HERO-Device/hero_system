@@ -16,6 +16,7 @@ Post-processing capabilities:
 - Heart rate variability (HRV - SDNN, RMSSD)
 """
 
+from .MAX30102 import MAX30102
 from .collector import MAX30102Collector
 from .processor import MAX30102Processor
 from .config import MAX30102Config

@@ -17,8 +17,8 @@ All sensors support:
 
 #from .eeg import EEGCollector, EEGProcessor, EEGConfig
 #from .eye_tracking import EyeTrackingProcessor, EyeTrackingCalibrator, EyeTrackingConfig
-from .max30102 import MAX30102Collector, MAX30102Processor, MAX30102Config
-from .mpu6050 import MPU6050Collector, MPU6050Processor, MPU6050Config
+#from .max30102 import MAX30102Collector, MAX30102Processor, MAX30102Config
+#from .mpu6050 import MPU6050Collector, MPU6050Processor, MPU6050Config
 
 __all__ = [
     # EEG (4 channels)

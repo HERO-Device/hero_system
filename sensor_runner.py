@@ -10,6 +10,7 @@ import logging
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hero_system'))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hero_app', 'session'))
 
 from hero_core.coordinator.clock import CentralClock

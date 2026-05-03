@@ -5,10 +5,12 @@ Orchestrates the full session flow:
   2. Start central clock
   3. Login patient
   4. Start test session in DB
-  5. Start sensors (stubbed for now)
+  5. Start sensors
   6. Run cognitive games (shared clock passed in)
   7. Stop sensors
   8. End session in DB
+  9. Print session summary
+ 10. Wait for Vol Down button or Enter to close
 """
 
 import os
@@ -19,6 +21,7 @@ import pygame as pg
 
 # Ensure hero_system root is on path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "hero_system"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hero_app', 'session'))
 
 from db.db_access import HeroDB
@@ -32,8 +35,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger('hero')
 
+
 def _force_exit(sig, frame):
-    """Ctrl+C / kill signal — exit cleanly."""
     logger.info("Force exit requested")
     pg.quit()
     sys.exit(0)
@@ -41,10 +44,9 @@ def _force_exit(sig, frame):
 signal.signal(signal.SIGINT,  _force_exit)
 signal.signal(signal.SIGTERM, _force_exit)
 
-def _start_exit_monitor():
-    """Background thread: sends SIGINT to self if Ctrl+Z pressed on keyboard."""
-    import threading
 
+def _start_exit_monitor():
+    import threading
     def monitor():
         try:
             import evdev, selectors
@@ -68,24 +70,16 @@ def _start_exit_monitor():
                                 os.kill(os.getpid(), signal.SIGINT)
         except Exception:
             pass
-
     threading.Thread(target=monitor, daemon=True).start()
 
-# ------------------------------------------------------------------
-# Config — change these for Pi vs laptop
-# ------------------------------------------------------------------
 
-PI_MODE       = True    # Set True on Raspberry Pi
-SCALE         = 1    # Scale factor for laptop testing
-ENABLE_SPEECH = False   # Set True on Pi with audio configured
+PI_MODE       = True
+SCALE         = 1
+ENABLE_SPEECH = False
+VOL_DOWN_PIN  = 27
 
-
-# ------------------------------------------------------------------
-# Sensor stubs — replace with real SensorCoordinator when ready
-# ------------------------------------------------------------------
 
 def start_sensors(session_id, clock=None, db_session=None):
-    """Spawn sensor collection as an independent process."""
     logger.info(f"Spawning sensor process for session {session_id}...")
     try:
         venv_python = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -103,7 +97,6 @@ def start_sensors(session_id, clock=None, db_session=None):
 
 
 def stop_sensors(proc):
-    """Stop the sensor process."""
     if proc and proc.poll() is None:
         logger.info(f"Stopping sensor process (PID {proc.pid})...")
         proc.terminate()
@@ -111,9 +104,115 @@ def stop_sensors(proc):
         logger.info("✓ Sensor process stopped")
 
 
-# ------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------
+def print_session_summary(db, session_id):
+    from hero_core.database.models.session import TestSession
+    from hero_core.database.models.game_results import GameResult
+    from hero_core.database.models.events import Event
+    from hero_core.database.models.user import User
+    try:
+        W = 60
+        print()
+        print("=" * W)
+        print("  SESSION SUMMARY")
+        print("=" * W)
+        session = db.session.query(TestSession).filter_by(session_id=session_id).first()
+        if session:
+            user = db.session.query(User).filter_by(user_id=session.user_id).first()
+            username = user.username if user else str(session.user_id)
+            duration = (session.ended_at - session.started_at).total_seconds() \
+                       if session.ended_at else None
+            print(f"  Patient   : {username}")
+            print(f"  Session ID: {session_id}")
+            print(f"  Started   : {session.started_at.strftime('%Y-%m-%d %H:%M:%S')}")
+            if duration:
+                print(f"  Duration  : {int(duration)}s ({int(duration)//60}m {int(duration)%60}s)")
+        print("-" * W)
+        results = db.session.query(GameResult).filter_by(
+            session_id=session_id
+        ).order_by(GameResult.game_number).all()
+        if results:
+            print(f"  {'Game':<12} {'Score':>6} {'Max':>6} {'Acc%':>6} {'Dur(s)':>8} {'Status':<12}")
+            print(f"  {'-'*12} {'-'*6} {'-'*6} {'-'*6} {'-'*8} {'-'*12}")
+            for r in results:
+                score  = str(r.final_score)          if r.final_score        is not None else '-'
+                max_s  = str(r.max_score)            if r.max_score          is not None else '-'
+                acc    = f"{r.accuracy_percent:.1f}" if r.accuracy_percent   is not None else '-'
+                dur    = f"{r.duration_seconds:.1f}" if r.duration_seconds   is not None else '-'
+                status = r.completion_status or '-'
+                print(f"  {r.game_name:<12} {score:>6} {max_s:>6} {acc:>6} {dur:>8} {status:<12}")
+        else:
+            print("  No game results recorded.")
+        print("-" * W)
+        try:
+            from sqlalchemy import text
+            sensor_tables = ['eeg_data', 'accelerometer_data', 'heart_rate_data', 'gaze_data']
+            print("  Sensor data rows:")
+            for table in sensor_tables:
+                try:
+                    count = db.session.execute(
+                        text(f"SELECT COUNT(*) FROM {table} WHERE session_id = :sid"),
+                        {'sid': str(session_id)}
+                    ).scalar()
+                    print(f"    {table:<25}: {count:>6} rows")
+                except Exception:
+                    print(f"    {table:<25}: (table not found)")
+        except Exception as e:
+            print(f"  Could not query sensor tables: {e}")
+        event_count = db.session.query(Event).filter_by(session_id=session_id).count()
+        print(f"  Events logged : {event_count}")
+        print("=" * W)
+    except Exception as e:
+        print(f"  Could not generate summary: {e}")
+
+
+def wait_for_close():
+    print("\n  Press VOL DOWN button or Enter to close...")
+    btn_request = None
+    if PI_MODE:
+        try:
+            import gpiod
+            from gpiod.line import Direction, Bias
+            btn_request = gpiod.request_lines(
+                '/dev/gpiochip0',
+                consumer='HeroClose',
+                config={VOL_DOWN_PIN: gpiod.LineSettings(
+                    direction=Direction.INPUT,
+                    bias=Bias.PULL_UP,
+                )}
+            )
+        except Exception as e:
+            logger.warning(f"Could not initialise Vol Down button: {e}")
+            btn_request = None
+
+    import threading, time
+    done = threading.Event()
+
+    def wait_enter():
+        try:
+            input()
+        except Exception:
+            pass
+        done.set()
+
+    threading.Thread(target=wait_enter, daemon=True).start()
+
+    if btn_request:
+        from gpiod.line import Value
+        prev = btn_request.get_value(VOL_DOWN_PIN)
+        while not done.is_set():
+            val = btn_request.get_value(VOL_DOWN_PIN)
+            if val == Value.INACTIVE and prev == Value.ACTIVE:
+                done.set()
+                break
+            prev = val
+            time.sleep(0.02)
+        try:
+            btn_request.release()
+        except Exception:
+            pass
+    else:
+        done.wait()
+
 
 def main():
     print()
@@ -122,10 +221,8 @@ def main():
     print("=" * 50)
     print()
 
-    # 1. Clean up any leftover depthai processes from previous sessions
     subprocess.run(['sudo', 'pkill', '-f', 'depthai'], capture_output=True)
 
-    # 2. Connect to DB
     logger.info("Connecting to database...")
     _start_exit_monitor()
     try:
@@ -136,97 +233,86 @@ def main():
         print("  Make sure PostgreSQL is running.")
         sys.exit(1)
 
-    # 3. Start central clock — shared by sensors and games
     clock = CentralClock()
     logger.info(f"✓ Central clock started: {clock}")
 
+    session_id_holder = [None]
+
     try:
-        # 4. Init pygame
-        os.environ['SDL_VIDEO_WINDOW_POS'] = "1029,600"  # Top physical screen (HDMI-A-2)
+        os.environ['SDL_VIDEO_WINDOW_POS'] = "1029,600"
         pg.init()
         pg.font.init()
         pg.event.pump()
 
-        # 5. Start sensors (stubbed — session_id set after login)
         pipeline = None
 
         def on_session_start(session_id):
-            """Called after login — runs calibration screen then spawns sensors."""
             nonlocal pipeline
+            session_id_holder[0] = session_id
 
-            # Run calibration screen (sensor checks + eye tracking calibration)
             from hero_app.calibration.calibration_screen import CalibrationScreen
 
             def after_calibration():
-               nonlocal pipeline
-               pipeline = start_sensors(session_id=session_id)
-               import time
-               ready_file = f"/tmp/hero_sensors_ready_{session_id}"
-               for _ in range(30):
-                   if os.path.exists(ready_file):
-                       os.remove(ready_file)
-                       logger.info("✓ Sensors ready")
-                       break
-                   time.sleep(0.5)
-               else:
-                   logger.warning("⚠ Sensors did not signal ready in time")
+                nonlocal pipeline
+                pipeline = start_sensors(session_id=session_id)
+                import time
+                ready_file = f"/tmp/hero_sensors_ready_{session_id}"
+                for _ in range(30):
+                    if os.path.exists(ready_file):
+                        os.remove(ready_file)
+                        logger.info("✓ Sensors ready")
+                        break
+                    time.sleep(0.5)
+                else:
+                    logger.warning("⚠ Sensors did not signal ready in time")
 
-                # Start gaze collection in background (camera already open from calibration)
-               if calib_screen.gaze_system:
-                   try:
-                       calib_screen.gaze_system.begin_collection()
-                       logger.info("✓ Gaze collection started")
-                   except Exception as e:
-                       logger.warning(f"Could not start gaze collection: {e}")
+                if calib_screen.gaze_system:
+                    try:
+                        calib_screen.gaze_system.begin_collection()
+                        logger.info("✓ Gaze collection started")
+                    except Exception as e:
+                        logger.warning(f"Could not start gaze collection: {e}")
 
-            # Get the pygame window from the consultation — reuse it
-            # We draw on the top half (display_size height)
             display_size = pg.Vector2(1024, 600) * SCALE
             window = pg.display.get_surface()
 
-            # Get db session for calibration
             _, calib_db_session = db.engine.connect(), None
             try:
-               from hero_core.database.models.connection import get_db_connection
-               _, calib_db_session = get_db_connection(
-                   host='localhost', port=5432, user='postgres',
-                   password='pgdbadmin', dbname='hero_db'
-               )
+                from hero_core.database.models.connection import get_db_connection
+                _, calib_db_session = get_db_connection(
+                    host='localhost', port=5432, user='postgres',
+                    password='pgdbadmin', dbname='hero_db'
+                )
             except Exception as e:
-               logger.warning(f"Could not open calibration DB session: {e}")
+                logger.warning(f"Could not open calibration DB session: {e}")
 
             calib_screen = CalibrationScreen(
-               session_id=session_id,
-               db_session=calib_db_session,
-               display_size=display_size,
-               window=window,
-               on_complete=after_calibration,
-               pi=PI_MODE,
+                session_id=session_id,
+                db_session=calib_db_session,
+                display_size=display_size,
+                window=window,
+                on_complete=after_calibration,
+                pi=PI_MODE,
             )
             calib_screen.run()
             if calib_db_session:
-               calib_db_session.close()
+                calib_db_session.close()
 
-        coordinator = None  # Will be set via callback
-
-        # 6. Run consultation — pass in db and shared clock
         logger.info("Starting consultation...")
         os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hero_app', 'session'))
         consult = Consultation(
             pi=PI_MODE,
             authenticate=True,
             seamless=True,
-            local=True,          # Also save locally as JSON backup
+            local=True,
             enable_speech=ENABLE_SPEECH,
             scale=SCALE,
             db=db,
-            clock=clock,         # Shared clock for synchronized timestamps
+            clock=clock,
             on_session_start=on_session_start,
         )
 
         consult.loop()
-
-        # 7. Stop sensors
         stop_sensors(pipeline)
 
     except KeyboardInterrupt:
@@ -236,18 +322,23 @@ def main():
         logger.error(f"Unexpected error: {e}", exc_info=True)
 
     finally:
+        if session_id_holder[0]:
+            print_session_summary(db, session_id_holder[0])
+
         db.close()
-        # Stop gaze collection if running
+
         try:
             if 'calib_screen' in dir() and calib_screen.gaze_system:
                 calib_screen.gaze_system.stop()
         except Exception:
             pass
+
         pg.quit()
         subprocess.run(['sudo', 'pkill', '-f', 'depthai'], capture_output=True)
+
         print("\n✓ HERO session complete.")
+        wait_for_close()
 
 
 if __name__ == '__main__':
     main()
-    
